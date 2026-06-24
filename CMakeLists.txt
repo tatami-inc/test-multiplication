@@ -26,5 +26,5 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(cli11)
 FetchContent_MakeAvailable(eztimer)
 
-add_subdirectory(dense_row_to_single_vector)
-add_subdirectory(dense_row_to_multiple_vectors)
+add_subdirectory(dense_row/single_vector)
+add_subdirectory(dense_row/multiple_vectors)

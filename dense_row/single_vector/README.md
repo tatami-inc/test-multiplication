@@ -15,7 +15,7 @@ Trying out a range of matrix shapes.
 All timings below are obtained on an Intel i7-8850H.
 
 ```bash
-$ ./build/dense_row_to_single_vector/drsv_test
+$ ./build/dense_row/single_vector/drsv_test
 Results for 10000 x 5000
 naive:          0.0542285 ± 3.34228e-05
 blocked (4):    0.042366 ± 0.000252097
@@ -23,7 +23,7 @@ blocked (8):    0.030795 ± 0.000146667
 blocked (16):   0.0304501 ± 0.000135064
 blocked (32):   0.0335762 ± 0.000152055
 
-$ ./build/dense_row_to_single_vector/drsv_test -r 200 -c 50000
+$ ./build/dense_row/single_vector/drsv_test -r 200 -c 50000
 Results for 200 x 50000
 naive:          0.0107306 ± 3.23375e-05
 blocked (4):    0.0085998 ± 0.00018445
@@ -31,7 +31,7 @@ blocked (8):    0.0060053 ± 3.045e-05
 blocked (16):   0.00613385 ± 0.000209699
 blocked (32):   0.00641108 ± 3.29051e-05
 
-$ ./build/dense_row_to_single_vector/drsv_test -r 50000 -c 200
+$ ./build/dense_row/single_vector/drsv_test -r 50000 -c 200
 Results for 50000 x 200
 naive:          0.0092874 ± 1.72382e-05
 blocked (4):    0.0135834 ± 7.5533e-05
@@ -45,7 +45,7 @@ blocked (32):   0.00854125 ± 2.97028e-05
 Again, but with single-precision floats.
 
 ```bash
-$ ./build/dense_row_to_single_vector/drsv_test_float
+$ ./build/dense_row/single_vector/drsv_test_float
 Results for 10000 x 5000
 naive:          0.0526109 ± 0.000441491
 blocked (4):    0.0355388 ± 0.000175101
@@ -53,7 +53,7 @@ blocked (8):    0.0235676 ± 0.000436915
 blocked (16):   0.0227525 ± 0.000917256
 blocked (32):   0.027698 ± 0.00082551
 
-$ ./build/dense_row_to_single_vector/drsv_test -r 200 -c 50000
+$ ./build/dense_row/single_vector/drsv_test -r 200 -c 50000
 Results for 200 x 50000
 naive:          0.0107807 ± 8.1561e-05
 blocked (4):    0.00840016 ± 6.52994e-05
@@ -61,7 +61,7 @@ blocked (8):    0.00599754 ± 4.35428e-05
 blocked (16):   0.005919 ± 1.70279e-05
 blocked (32):   0.00641248 ± 1.25911e-05
 
-$ ./build/dense_row_to_single_vector/drsv_test -r 50000 -c 200
+$ ./build/dense_row/single_vector/drsv_test -r 50000 -c 200
 Results for 50000 x 200
 naive:          0.00931981 ± 1.72624e-05
 blocked (4):    0.0135165 ± 7.46251e-05
