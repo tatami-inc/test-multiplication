@@ -8,11 +8,13 @@ The blocked approach takes $B$ rows of the LHS matrix and, for each row, compute
 It repeatedly adds the dot product of the next $C$ elements until all columns of the LHS matrix have been traversed.
 Then, it proceeds to the next $B$ rows until all rows have been traversed.
 We test a range of different values for the $B$ given a fixed value for $BC = 1024$, i.e., a thousand elements in the cache at once.
+(The actual number in the cache is more like $(B + 1)C$, to account for the elements of the RHS vector.)
 Even for 8-byte types like `double`, this should easily fit into a modern L1 cache.
 
 Both the naive and blocked approaches can be augmented with the use of multiple accumulators for the dot product.
 To keep things simple, we only consider the performance of blocking with 4 accumulators,
-given that it's better than 2 but 8 does not provide much more benefit.
+given that it's better than 2 and only slightly worse than 8.
+Too many accumulators could interfere with instruction caching and increase register pressure.
 
 ## Instructions
 
