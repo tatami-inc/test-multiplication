@@ -12,6 +12,25 @@
 #define FLOAT float
 #endif
 
+template<int num_acc_, class Iterator1_, class Iterator2_>
+FLOAT super_dot_product(const std::size_t len, Iterator1_ start1, Iterator2_ start2) {
+    const std::size_t cycles = len / num_acc_;
+    std::array<FLOAT, num_acc_> dots{};
+    std::size_t c = 0;
+    for (std::size_t c0 = 0; c0 < cycles; ++c0) {
+        for (std::size_t i = 0; i < num_acc_; ++i) {
+            dots[i] += *(start1 + (c + i)) * *(start2 + (c + i));
+        }
+        c += num_acc_;
+    }
+    FLOAT extras = 0;
+    for (; c < len; ++c) {
+        extras += *(start1 + c) * *(start2 + c);
+    }
+    return std::accumulate(dots.begin(), dots.end(), extras);
+}
+
+template<int num_acc_>
 void blocked_mult(
     const std::size_t NR,
     const std::size_t NC,
@@ -21,6 +40,10 @@ void blocked_mult(
     std::vector<std::vector<FLOAT> >& product,
     std::size_t block_size
 ) {
+    // Assuming that we can safely fit around 1000 elements in the cache.
+    // Technically, the cache size is in bytes and the "ideal" number of elements would depend on sizeof(FLOAT).
+    // However, we'll just keep it simple here, given that this cache size (in bytes or elements) is just a guess anyway. 
+    const std::size_t line_size = 1024 / block_size;
     std::size_t r = 0;
     while (r < NR) {
         const std::size_t rend = r + std::min(block_size, NR - r);
@@ -29,16 +52,25 @@ void blocked_mult(
             const std::size_t hend = h + std::min(block_size, NRHS - h);
             std::size_t c = 0;
             while (c < NC) {
-                const std::size_t cend = c + std::min(block_size, NC - c);
+                const std::size_t cnum = std::min(line_size, NC - c);
+                const std::size_t cend = c + cnum;
 
                 for (auto hcopy = h; hcopy < hend; ++hcopy) {
                     for (auto rcopy = r; rcopy < rend; ++rcopy) {
-                        product[hcopy][rcopy] = std::inner_product(
-                            rhs[hcopy].begin() + c,
-                            rhs[hcopy].begin() + cend,
-                            matrix[rcopy].begin() + c,
-                            product[hcopy][rcopy]
-                        );
+                        if constexpr(num_acc_ == 1) {
+                            product[hcopy][rcopy] = std::inner_product(
+                                rhs[hcopy].begin() + c,
+                                rhs[hcopy].begin() + cend,
+                                matrix[rcopy].begin() + c,
+                                product[hcopy][rcopy]
+                            );
+                        } else {
+                            product[hcopy][rcopy] += super_dot_product<4>(
+                                cnum,
+                                rhs[hcopy].begin() + c,
+                                matrix[rcopy].begin() + c
+                            );
+                        }
                     }
                 }
 
@@ -99,7 +131,9 @@ int main(int argc, char ** argv) {
     };
 
     std::vector<std::function<FLOAT()> > funs;
-    funs.reserve(5);
+    funs.reserve(16);
+    std::vector<std::string> names;
+    names.reserve(16);
 
     // Naive multiplication.
     auto naive = preallocate_output();
@@ -111,41 +145,115 @@ int main(int argc, char ** argv) {
         }
         return naive.front().front() + naive.front().back() + naive.back().front() + naive.back().back();
     });
+    names.push_back("naive");
+
+    auto naive_acc_2 = preallocate_output();
+    funs.emplace_back([&]() -> FLOAT {
+        for (std::size_t r = 0; r < NR; ++r) {
+            for (std::size_t h = 0; h < NRHS; ++h) {
+                naive_acc_2[h][r] = super_dot_product<2>(NC, rhs[h].begin(), matrix[r].begin());
+            }
+        }
+        return naive_acc_2.front().front() + naive_acc_2.front().back() + naive_acc_2.back().front() + naive_acc_2.back().back();
+    });
+    names.push_back("naive, two accumulators");
+
+    auto naive_acc_4 = preallocate_output();
+    funs.emplace_back([&]() -> FLOAT {
+        for (std::size_t r = 0; r < NR; ++r) {
+            for (std::size_t h = 0; h < NRHS; ++h) {
+                naive_acc_4[h][r] = super_dot_product<4>(NC, rhs[h].begin(), matrix[r].begin());
+            }
+        }
+        return naive_acc_4.front().front() + naive_acc_4.front().back() + naive_acc_4.back().front() + naive_acc_4.back().back();
+    });
+    names.push_back("naive, four accumulators");
+
+    auto naive_acc_8 = preallocate_output();
+    funs.emplace_back([&]() -> FLOAT {
+        for (std::size_t r = 0; r < NR; ++r) {
+            for (std::size_t h = 0; h < NRHS; ++h) {
+                naive_acc_8[h][r] = super_dot_product<8>(NC, rhs[h].begin(), matrix[r].begin());
+            }
+        }
+        return naive_acc_8.front().front() + naive_acc_8.front().back() + naive_acc_8.back().front() + naive_acc_8.back().back();
+    });
+    names.push_back("naive, eight accumulators");
 
     // Blocked multiplication.
     auto blocked_4 = preallocate_output();
     funs.emplace_back([&]() -> FLOAT {
-        blocked_mult(NR, NC, matrix, NRHS, rhs, blocked_4, 4);
+        blocked_mult<1>(NR, NC, matrix, NRHS, rhs, blocked_4, 4);
         return blocked_4.front().front() + blocked_4.front().back() + blocked_4.back().front() + blocked_4.back().back();
     });
+    names.push_back("blocked 4");
 
     auto blocked_8 = preallocate_output();
     funs.emplace_back([&]() -> FLOAT {
-        blocked_mult(NR, NC, matrix, NRHS, rhs, blocked_8, 8);
+        blocked_mult<1>(NR, NC, matrix, NRHS, rhs, blocked_8, 8);
         return blocked_8.front().front() + blocked_8.front().back() + blocked_8.back().front() + blocked_8.back().back();
     });
+    names.push_back("blocked 8");
 
     auto blocked_16 = preallocate_output();
     funs.emplace_back([&]() -> FLOAT {
-        blocked_mult(NR, NC, matrix, NRHS, rhs, blocked_16, 16);
+        blocked_mult<1>(NR, NC, matrix, NRHS, rhs, blocked_16, 16);
         return blocked_16.front().front() + blocked_16.front().back() + blocked_16.back().front() + blocked_16.back().back();
     });
+    names.push_back("blocked 16");
 
     auto blocked_32 = preallocate_output();
     funs.emplace_back([&]() -> FLOAT {
-        blocked_mult(NR, NC, matrix, NRHS, rhs, blocked_32, 32);
+        blocked_mult<1>(NR, NC, matrix, NRHS, rhs, blocked_32, 32);
         return blocked_32.front().front() + blocked_32.front().back() + blocked_32.back().front() + blocked_32.back().back();
     });
+    names.push_back("blocked 32");
+
+    // Blocked multiplication with multiple accumulators.
+    auto ma_blocked_4 = preallocate_output();
+    funs.emplace_back([&]() -> FLOAT {
+        blocked_mult<4>(NR, NC, matrix, NRHS, rhs, ma_blocked_4, 4);
+        return ma_blocked_4.front().front() + ma_blocked_4.front().back() + ma_blocked_4.back().front() + ma_blocked_4.back().back();
+    });
+    names.push_back("blocked 4, four accumulators");
+
+    auto ma_blocked_8 = preallocate_output();
+    funs.emplace_back([&]() -> FLOAT {
+        blocked_mult<4>(NR, NC, matrix, NRHS, rhs, ma_blocked_8, 8);
+        return ma_blocked_8.front().front() + ma_blocked_8.front().back() + ma_blocked_8.back().front() + ma_blocked_8.back().back();
+    });
+    names.push_back("blocked 8, four accumulators");
+
+    auto ma_blocked_16 = preallocate_output();
+    funs.emplace_back([&]() -> FLOAT {
+        blocked_mult<4>(NR, NC, matrix, NRHS, rhs, ma_blocked_16, 16);
+        return ma_blocked_16.front().front() + ma_blocked_16.front().back() + ma_blocked_16.back().front() + ma_blocked_16.back().back();
+    });
+    names.push_back("blocked 16, four accumulators");
+
+    auto ma_blocked_32 = preallocate_output();
+    funs.emplace_back([&]() -> FLOAT {
+        blocked_mult<4>(NR, NC, matrix, NRHS, rhs, ma_blocked_32, 32);
+        return ma_blocked_32.front().front() + ma_blocked_32.front().back() + ma_blocked_32.back().front() + ma_blocked_32.back().back();
+    });
+    names.push_back("blocked 32, four accumulators");
 
     // Performing the iterations.
     eztimer::Options opt;
     opt.iterations = iterations;
     opt.setup = [&]() -> void {
         reset_output(naive);
+        reset_output(naive_acc_2);
+        reset_output(naive_acc_4);
+        reset_output(naive_acc_8);
         reset_output(blocked_4);
         reset_output(blocked_8);
         reset_output(blocked_16);
         reset_output(blocked_32);
+        reset_output(ma_blocked_4);
+        reset_output(ma_blocked_8);
+        reset_output(ma_blocked_16);
+        reset_output(ma_blocked_32);
     };
 
     std::optional<FLOAT> expected;
@@ -168,12 +276,15 @@ int main(int argc, char ** argv) {
         opt
     );
 
-    std::cout << "Results for " << NR << " x " << NC << std::endl;
-    std::cout << "naive:          " << res[0].mean.count() << " ± " << res[0].sd.count() / std::sqrt(res[0].times.size()) << std::endl;
-    std::cout << "blocked (4):    " << res[1].mean.count() << " ± " << res[1].sd.count() / std::sqrt(res[1].times.size()) << std::endl;
-    std::cout << "blocked (8):    " << res[2].mean.count() << " ± " << res[2].sd.count() / std::sqrt(res[2].times.size()) << std::endl;
-    std::cout << "blocked (16):   " << res[3].mean.count() << " ± " << res[3].sd.count() / std::sqrt(res[3].times.size()) << std::endl;
-    std::cout << "blocked (32):   " << res[4].mean.count() << " ± " << res[4].sd.count() / std::sqrt(res[4].times.size()) << std::endl;
+    std::cout << "Results for " << NR << " x " << NC << " x " << NRHS << std::endl;
+    const std::size_t num_methods = names.size();
+    for (std::size_t m = 0; m < num_methods; ++m) {
+        auto name = names[m];
+        if (name.size() < 40) {
+            name.insert(name.end(), 40 - name.size(), ' ');
+        }
+        std::cout << name << ": " << res[m].mean.count() << " ± " << res[m].sd.count() / std::sqrt(res[m].times.size()) << std::endl;
+    }
 
     return 0;
 }
