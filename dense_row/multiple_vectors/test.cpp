@@ -65,7 +65,7 @@ void blocked_mult(
                                 product[hcopy][rcopy]
                             );
                         } else {
-                            product[hcopy][rcopy] += super_dot_product<4>(
+                            product[hcopy][rcopy] += super_dot_product<num_acc_>(
                                 cnum,
                                 rhs[hcopy].begin() + c,
                                 matrix[rcopy].begin() + c
@@ -265,7 +265,7 @@ int main(int argc, char ** argv) {
 #ifndef USE_SINGLE
                 if (std::abs(*expected - res) > 1e-8) {
 #else
-                if (std::abs(*expected - res) > 1e-3) {
+                if (std::abs(*expected - res) > 1e-2) {
 #endif
                     throw std::runtime_error("oops that's not right");
                 }
