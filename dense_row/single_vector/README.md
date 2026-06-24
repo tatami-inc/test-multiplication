@@ -1,82 +1,141 @@
 # Dense row-major versus a single vector
 
-## Strategies
+## Overview 
 
-The naive approach involves computing dot-products for each row of the LHS matrix and the RHS vector.
+The naive approach involves computing dot products for each row of the LHS matrix and the RHS vector.
 
-The blocked approach takes $B$ rows of the LHS matrix and, for each row, computes the dot product of its first $B$ elements against the first $B$ elements of the RHS vector.
-It repeatedly adds the dot product of the next $B$ elements until all columns of the LHS matrix have been traversed.
+The blocked approach takes $B$ rows of the LHS matrix and, for each row, computes the dot product of its first $C$ elements against the first $L$ elements of the RHS vector.
+It repeatedly adds the dot product of the next $C$ elements until all columns of the LHS matrix have been traversed.
 Then, it proceeds to the next $B$ rows until all rows have been traversed.
-We test a range of different values for $B$.
+We test a range of different values for the $B$ given a fixed value for $BC = 1024$, i.e., a thousand elements in the cache at once.
+Even for 8-byte types like `double`, this should easily fit into a modern L1 cache.
+
+Both the naive and blocked approaches can be augmented with the use of multiple accumulators for the dot product.
+To keep things simple, we only consider the performance of blocking with 4 accumulators,
+given that it's better than 2 but 8 does not provide much more benefit.
+
+## Instructions
+
+To build the test executable, use the usual CMake process:
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+```
 
 ## Double-precision results
 
 Trying out a range of matrix shapes.
 All timings below are obtained on an Intel i7-8850H.
 
-```bash
-$ ./build/dense_row/single_vector/drsv_test
+```console
+$ ./build/test
 Results for 10000 x 5000
-naive:          0.0542285 ± 3.34228e-05
-blocked (4):    0.042366 ± 0.000252097
-blocked (8):    0.030795 ± 0.000146667
-blocked (16):   0.0304501 ± 0.000135064
-blocked (32):   0.0335762 ± 0.000152055
+naive                                   : 0.054 ± 8.22871e-05
+naive, two accumulators                 : 0.0307047 ± 5.10532e-05
+naive, four accumulators                : 0.0268394 ± 5.75564e-05
+naive, eight accumulators               : 0.026854 ± 0.000149206
+blocked 4                               : 0.0413164 ± 0.000120829
+blocked 8                               : 0.0307188 ± 5.32347e-05
+blocked 16                              : 0.0308984 ± 0.000112529
+blocked 32                              : 0.0338886 ± 0.000173706
+blocked 4, four accumulators            : 0.0279144 ± 0.000532351
+blocked 8, four accumulators            : 0.0302185 ± 5.8495e-05
+blocked 16, four accumulators           : 0.0270262 ± 0.000121249
+blocked 32, four accumulators           : 0.0283397 ± 0.000130035
 
-$ ./build/dense_row/single_vector/drsv_test -r 200 -c 50000
+$ ./build/test -r 200 -c 50000
 Results for 200 x 50000
-naive:          0.0107306 ± 3.23375e-05
-blocked (4):    0.0085998 ± 0.00018445
-blocked (8):    0.0060053 ± 3.045e-05
-blocked (16):   0.00613385 ± 0.000209699
-blocked (32):   0.00641108 ± 3.29051e-05
+naive                                   : 0.0108439 ± 2.91234e-05
+naive, two accumulators                 : 0.00646193 ± 0.000153859
+naive, four accumulators                : 0.00576936 ± 4.73473e-05
+naive, eight accumulators               : 0.005692 ± 4.20082e-05
+blocked 4                               : 0.0102212 ± 0.000452175
+blocked 8                               : 0.00843814 ± 3.40908e-05
+blocked 16                              : 0.00882655 ± 3.23727e-05
+blocked 32                              : 0.00804491 ± 3.27883e-05
+blocked 4, four accumulators            : 0.0062029 ± 0.00022658
+blocked 8, four accumulators            : 0.00640366 ± 7.41181e-05
+blocked 16, four accumulators           : 0.00667484 ± 8.01836e-05
+blocked 32, four accumulators           : 0.00694721 ± 3.33449e-05
 
-$ ./build/dense_row/single_vector/drsv_test -r 50000 -c 200
+$ ./build/test -r 50000 -c 200
 Results for 50000 x 200
-naive:          0.0092874 ± 1.72382e-05
-blocked (4):    0.0135834 ± 7.5533e-05
-blocked (8):    0.0072575 ± 0.000183823
-blocked (16):   0.00678745 ± 2.94841e-05
-blocked (32):   0.00854125 ± 2.97028e-05
+naive                                   : 0.00948304 ± 2.47682e-05
+naive, two accumulators                 : 0.00591148 ± 2.7944e-05
+naive, four accumulators                : 0.005392 ± 1.95814e-05
+naive, eight accumulators               : 0.00546011 ± 4.72608e-05
+blocked 4                               : 0.00963489 ± 2.50798e-05
+blocked 8                               : 0.00894947 ± 4.34422e-05
+blocked 16                              : 0.00952565 ± 0.000120571
+blocked 32                              : 0.00992812 ± 0.00113073
+blocked 4, four accumulators            : 0.00569053 ± 0.00025808
+blocked 8, four accumulators            : 0.00639567 ± 4.23242e-05
+blocked 16, four accumulators           : 0.00691397 ± 0.000134848
+blocked 32, four accumulators           : 0.00672805 ± 3.04725e-05
 ```
 
 ## Single-precision results
 
 Again, but with single-precision floats.
 
-```bash
-$ ./build/dense_row/single_vector/drsv_test_float
+```console
+$ ./build/test_float
 Results for 10000 x 5000
-naive:          0.0526109 ± 0.000441491
-blocked (4):    0.0355388 ± 0.000175101
-blocked (8):    0.0235676 ± 0.000436915
-blocked (16):   0.0227525 ± 0.000917256
-blocked (32):   0.027698 ± 0.00082551
+naive                                   : 0.0529079 ± 0.000193716
+naive, two accumulators                 : 0.0287049 ± 0.00011162
+naive, four accumulators                : 0.0156929 ± 6.10475e-05
+naive, eight accumulators               : 0.0134603 ± 3.0829e-05
+blocked 4                               : 0.048711 ± 0.000202014
+blocked 8                               : 0.0445642 ± 0.000270465
+blocked 16                              : 0.0364819 ± 0.000112232
+blocked 32                              : 0.0327344 ± 7.13401e-05
+blocked 4, four accumulators            : 0.0158104 ± 0.000188776
+blocked 8, four accumulators            : 0.0168891 ± 3.75229e-05
+blocked 16, four accumulators           : 0.0172761 ± 3.67064e-05
+blocked 32, four accumulators           : 0.015765 ± 4.56557e-05
 
-$ ./build/dense_row/single_vector/drsv_test -r 200 -c 50000
+$ ./build/test_float -r 200 -c 50000
 Results for 200 x 50000
-naive:          0.0107807 ± 8.1561e-05
-blocked (4):    0.00840016 ± 6.52994e-05
-blocked (8):    0.00599754 ± 4.35428e-05
-blocked (16):   0.005919 ± 1.70279e-05
-blocked (32):   0.00641248 ± 1.25911e-05
+naive                                   : 0.0103902 ± 3.25234e-05
+naive, two accumulators                 : 0.00568034 ± 2.82777e-05
+naive, four accumulators                : 0.00309989 ± 2.15332e-05
+naive, eight accumulators               : 0.00273271 ± 2.35036e-05
+blocked 4                               : 0.00947168 ± 8.29157e-05
+blocked 8                               : 0.00857786 ± 3.61417e-05
+blocked 16                              : 0.00692126 ± 2.12998e-05
+blocked 32                              : 0.0066643 ± 2.27636e-05
+blocked 4, four accumulators            : 0.00324065 ± 2.83608e-05
+blocked 8, four accumulators            : 0.0032029 ± 4.86237e-05
+blocked 16, four accumulators           : 0.00349992 ± 3.00997e-05
+blocked 32, four accumulators           : 0.00360221 ± 2.82781e-05
 
-$ ./build/dense_row/single_vector/drsv_test -r 50000 -c 200
+$ ./build/test_float -r 50000 -c 200
 Results for 50000 x 200
-naive:          0.00931981 ± 1.72624e-05
-blocked (4):    0.0135165 ± 7.46251e-05
-blocked (8):    0.00725454 ± 0.000170445
-blocked (16):   0.00685953 ± 2.52907e-05
-blocked (32):   0.00854268 ± 3.86938e-05
-Results for 50000 x 200
+naive                                   : 0.00980517 ± 7.33511e-05
+naive, two accumulators                 : 0.00507253 ± 1.50702e-05
+naive, four accumulators                : 0.00285418 ± 2.55216e-05
+naive, eight accumulators               : 0.0027371 ± 7.65567e-06
+blocked 4                               : 0.00844719 ± 2.2577e-05
+blocked 8                               : 0.00836316 ± 1.53324e-05
+blocked 16                              : 0.00720698 ± 2.26424e-05
+blocked 32                              : 0.0073962 ± 1.9011e-05
+blocked 4, four accumulators            : 0.00289314 ± 2.29114e-05
+blocked 8, four accumulators            : 0.00287145 ± 2.24661e-05
+blocked 16, four accumulators           : 0.00329408 ± 2.32918e-05
+blocked 32, four accumulators           : 0.00369884 ± 3.25145e-05
 ```
 
 ## Conclusion
 
-Blocking gives a moderate speed-up with a block size of 16 elements.
-This is attributable to the improvement in cache efficiency as the RHS vector does not need to be constantly reloaded per LHS row.
-Rather, the RHS vector is only reloaded once per 16 LHS rows.
+Use of multiple accumulators helps a lot, presumably because it improves parallelization of instructions within each CPU.
 
-I'd speculate that $B = 16$ is the best compromise between cache efficiency and looping overhead, at least on the tested CPU.
-Block sizes that are too small will have high overhead from the stop/starting across blocks,
-while block sizes that are too large will not fit into cache.
+Blocking gives a moderate speed-up with a block size of 16 elements.
+This is probably due to improved cache efficiency, as the RHS vector does not need to be constantly reloaded per LHS row.
+However, the naive approach with multiple accumulators is still faster that blocking (with or without multiple accumulators).
+It seems that the lack of looping overhead outweighs the theoretical cache suboptimality.
+
+In any case, this result is nice as it means that we can get good performance without blocking.
+Specifically, blocking is annoying as we need to allocate more space to load multiple rows from a **tatami** matrix.
+This would force us to make judgement calls on the speed-memory trade-off.
+Now, we can just load a single row and use the naive approach with multiple accumulators.
