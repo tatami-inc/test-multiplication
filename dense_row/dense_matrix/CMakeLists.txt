@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.14)
 
 project(
-    matmult
+    drdm 
     VERSION 1.0.0
-    DESCRIPTION "Performance tests for matrix multiplication"
+    DESCRIPTION "Dense row matrix, dense matrix"
     LANGUAGES CXX
 )
 

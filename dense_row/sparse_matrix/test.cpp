@@ -45,7 +45,7 @@ FLOAT dense_sparse_dot_product(const Values_& values, const Indices_& indices, c
 }
 
 int main(int argc, char ** argv) {
-    CLI::App app{"Log-normalization performance tests"};
+    CLI::App app{"Dense row matrix x sparse matrix performance tests"};
     std::size_t NR;
     app.add_option("-r,--row", NR, "Number of matrix rows")->default_val(10000);
     std::size_t NC;

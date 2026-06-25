@@ -210,7 +210,7 @@ void blocked_mult_with_right_row_to_output_row(
 }
 
 int main(int argc, char ** argv) {
-    CLI::App app{"Log-normalization performance tests"};
+    CLI::App app{"Dense row matrix x dense matrix performance tests"};
     std::size_t NR;
     app.add_option("-r,--row", NR, "Number of matrix rows")->default_val(10000);
     std::size_t NC;
