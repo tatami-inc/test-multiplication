@@ -13,23 +13,7 @@
 #define FLOAT float
 #endif
 
-template<int num_acc_, class Iterator1_, class Iterator2_>
-FLOAT super_dot_product(const std::size_t len, Iterator1_ start1, Iterator2_ start2) {
-    const std::size_t cycles = len / num_acc_;
-    std::array<FLOAT, num_acc_> dots{};
-    std::size_t c = 0;
-    for (std::size_t c0 = 0; c0 < cycles; ++c0) {
-        for (std::size_t i = 0; i < num_acc_; ++i) {
-            dots[i] += *(start1 + (c + i)) * *(start2 + (c + i));
-        }
-        c += num_acc_;
-    }
-    FLOAT extras = 0;
-    for (; c < len; ++c) {
-        extras += *(start1 + c) * *(start2 + c);
-    }
-    return std::accumulate(dots.begin(), dots.end(), extras);
-}
+#include "super_dot_product.h"
 
 template<int num_acc_>
 void blocked_mult(
@@ -61,10 +45,11 @@ void blocked_mult(
                         product[rcopy]
                     );
                 } else {
-                    product[rcopy] += super_dot_product<num_acc_>(
+                    product[rcopy] = super_dot_product<num_acc_>(
                         cnum,
                         rhs.begin() + c,
-                        matrix[rcopy].begin() + c
+                        matrix[rcopy].begin() + c,
+                        product[rcopy]
                     );
                 }
             }
@@ -123,7 +108,7 @@ int main(int argc, char ** argv) {
     names.push_back("naive, two accumulators");
     funs.emplace_back([&]() -> FLOAT {
         for (std::size_t r = 0; r < NR; ++r) {
-            naive_two_acc[r] = super_dot_product<2>(NC, rhs.begin(), matrix[r].begin());
+            naive_two_acc[r] = super_dot_product<2>(NC, rhs.begin(), matrix[r].begin(), 0);
         }
         return naive_two_acc.front() + naive_two_acc.back();
     });
@@ -132,7 +117,7 @@ int main(int argc, char ** argv) {
     names.push_back("naive, four accumulators");
     funs.emplace_back([&]() -> FLOAT {
         for (std::size_t r = 0; r < NR; ++r) {
-            naive_four_acc[r] = super_dot_product<4>(NC, rhs.begin(), matrix[r].begin());
+            naive_four_acc[r] = super_dot_product<4>(NC, rhs.begin(), matrix[r].begin(), 0);
         }
         return naive_four_acc.front() + naive_four_acc.back();
     });
@@ -141,7 +126,7 @@ int main(int argc, char ** argv) {
     names.push_back("naive, eight accumulators");
     funs.emplace_back([&]() -> FLOAT {
         for (std::size_t r = 0; r < NR; ++r) {
-            naive_eight_acc[r] = super_dot_product<8>(NC, rhs.begin(), matrix[r].begin());
+            naive_eight_acc[r] = super_dot_product<8>(NC, rhs.begin(), matrix[r].begin(), 0);
         }
         return naive_eight_acc.front() + naive_eight_acc.back();
     });

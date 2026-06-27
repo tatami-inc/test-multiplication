@@ -5,7 +5,7 @@
 The naive approach involves computing dot products for each row of the LHS matrix and each of the multiple RHS vectors.
 
 The blocked approach operates on $B$ rows of the LHS matrix and $B$ RHS vectors at a time.
-For each combination of row/vector in this block, we compute the dot product of its first $C$ elements against the first $L$ elements of the RHS vector.
+For each combination of row/vector in this block, we compute the dot product of its first $C$ elements against the first $C$ elements of the RHS vector.
 It repeatedly adds the dot product of the next $C$ elements until all columns of the LHS matrix have been traversed.
 It proceeds to the next $B$ RHS vectors until all vectors have been traversed, and then onto the next $B$ rows until the entire LHS matrix is traversed.
 We test a range of different values for the $B$ given a fixed value for $BC = 1024$, i.e., a thousand elements in the cache at once.

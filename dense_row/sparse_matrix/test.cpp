@@ -27,18 +27,19 @@ FLOAT dense_sparse_dot_product(const Values_& values, const Indices_& indices, c
     } else {
         std::array<FLOAT, num_acc_> dots{};
         const std::size_t cycles = num_non_zeros / num_acc_;
+        const std::size_t remainder = num_non_zeros % num_acc_;
 
-        std::size_t c = 0;
-        for (std::size_t c0 = 0; c0 < cycles; ++c0) {
+        for (std::size_t c = 0; c < cycles; ++c) {
             for (std::size_t i = 0; i < num_acc_; ++i) {
-                dots[i] += dense[indices[c + i]] * values[c + i]; 
+                const auto idx = c * num_acc_ + i;
+                dots[i] += dense[indices[idx]] * values[idx]; 
             }
-            c += num_acc_;
         }
 
         FLOAT extras = 0;
-        for (; c < num_non_zeros; ++c) {
-            extras += dense[indices[c]] * values[c];
+        for (std::size_t i = 0; i < remainder; ++i) {
+            const auto idx = cycles * num_acc_ + i;
+            extras += dense[indices[idx]] * values[idx];
         }
         return std::accumulate(dots.begin(), dots.end(), extras);
     }

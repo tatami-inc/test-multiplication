@@ -12,23 +12,7 @@
 #define FLOAT float
 #endif
 
-template<int num_acc_, class Iterator1_, class Iterator2_>
-FLOAT super_dot_product(const std::size_t len, Iterator1_ start1, Iterator2_ start2) {
-    const std::size_t cycles = len / num_acc_;
-    std::array<FLOAT, num_acc_> dots{};
-    std::size_t c = 0;
-    for (std::size_t c0 = 0; c0 < cycles; ++c0) {
-        for (std::size_t i = 0; i < num_acc_; ++i) {
-            dots[i] += *(start1 + (c + i)) * *(start2 + (c + i));
-        }
-        c += num_acc_;
-    }
-    FLOAT extras = 0;
-    for (; c < len; ++c) {
-        extras += *(start1 + c) * *(start2 + c);
-    }
-    return std::accumulate(dots.begin(), dots.end(), extras);
-}
+#include "super_dot_product.h"
 
 template<int num_acc_>
 void blocked_mult(
@@ -56,19 +40,22 @@ void blocked_mult(
                 const std::size_t cend = c + cnum;
 
                 for (auto hcopy = h; hcopy < hend; ++hcopy) {
+                    auto& outcol = product[hcopy];
+                    const auto& rightcol = rhs[hcopy];
                     for (auto rcopy = r; rcopy < rend; ++rcopy) {
                         if constexpr(num_acc_ == 1) {
-                            product[hcopy][rcopy] = std::inner_product(
-                                rhs[hcopy].begin() + c,
-                                rhs[hcopy].begin() + cend,
+                            outcol[rcopy] = std::inner_product(
+                                rightcol.begin() + c,
+                                rightcol.begin() + cend,
                                 matrix[rcopy].begin() + c,
-                                product[hcopy][rcopy]
+                                outcol[rcopy]
                             );
                         } else {
-                            product[hcopy][rcopy] += super_dot_product<num_acc_>(
+                            outcol[rcopy] = super_dot_product<num_acc_>(
                                 cnum,
-                                rhs[hcopy].begin() + c,
-                                matrix[rcopy].begin() + c
+                                rightcol.begin() + c,
+                                matrix[rcopy].begin() + c,
+                                outcol[rcopy]
                             );
                         }
                     }
@@ -140,7 +127,7 @@ int main(int argc, char ** argv) {
     funs.emplace_back([&]() -> FLOAT {
         for (std::size_t r = 0; r < NR; ++r) {
             for (std::size_t h = 0; h < NRHS; ++h) {
-                naive[h][r] = std::inner_product(rhs[h].begin(), rhs[h].end(), matrix[r].begin(), 0.0);
+                naive[h][r] = std::inner_product(rhs[h].begin(), rhs[h].end(), matrix[r].begin(), static_cast<FLOAT>(0));
             }
         }
         return naive.front().front() + naive.front().back() + naive.back().front() + naive.back().back();
@@ -151,7 +138,7 @@ int main(int argc, char ** argv) {
     funs.emplace_back([&]() -> FLOAT {
         for (std::size_t r = 0; r < NR; ++r) {
             for (std::size_t h = 0; h < NRHS; ++h) {
-                naive_acc_2[h][r] = super_dot_product<2>(NC, rhs[h].begin(), matrix[r].begin());
+                naive_acc_2[h][r] = super_dot_product<2>(NC, rhs[h].begin(), matrix[r].begin(), 0);
             }
         }
         return naive_acc_2.front().front() + naive_acc_2.front().back() + naive_acc_2.back().front() + naive_acc_2.back().back();
@@ -162,7 +149,7 @@ int main(int argc, char ** argv) {
     funs.emplace_back([&]() -> FLOAT {
         for (std::size_t r = 0; r < NR; ++r) {
             for (std::size_t h = 0; h < NRHS; ++h) {
-                naive_acc_4[h][r] = super_dot_product<4>(NC, rhs[h].begin(), matrix[r].begin());
+                naive_acc_4[h][r] = super_dot_product<4>(NC, rhs[h].begin(), matrix[r].begin(), 0);
             }
         }
         return naive_acc_4.front().front() + naive_acc_4.front().back() + naive_acc_4.back().front() + naive_acc_4.back().back();
@@ -173,7 +160,7 @@ int main(int argc, char ** argv) {
     funs.emplace_back([&]() -> FLOAT {
         for (std::size_t r = 0; r < NR; ++r) {
             for (std::size_t h = 0; h < NRHS; ++h) {
-                naive_acc_8[h][r] = super_dot_product<8>(NC, rhs[h].begin(), matrix[r].begin());
+                naive_acc_8[h][r] = super_dot_product<8>(NC, rhs[h].begin(), matrix[r].begin(), 0);
             }
         }
         return naive_acc_8.front().front() + naive_acc_8.front().back() + naive_acc_8.back().front() + naive_acc_8.back().back();

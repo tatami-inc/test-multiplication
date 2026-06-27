@@ -12,23 +12,7 @@
 #define FLOAT float
 #endif
 
-template<int num_acc_, class Iterator1_, class Iterator2_>
-FLOAT super_dot_product(const std::size_t len, Iterator1_ start1, Iterator2_ start2) {
-    const std::size_t cycles = len / num_acc_;
-    std::array<FLOAT, num_acc_> dots{};
-    std::size_t c = 0;
-    for (std::size_t c0 = 0; c0 < cycles; ++c0) {
-        for (std::size_t i = 0; i < num_acc_; ++i) {
-            dots[i] += *(start1 + (c + i)) * *(start2 + (c + i));
-        }
-        c += num_acc_;
-    }
-    FLOAT extras = 0;
-    for (; c < len; ++c) {
-        extras += *(start1 + c) * *(start2 + c);
-    }
-    return std::accumulate(dots.begin(), dots.end(), extras);
-}
+#include "super_dot_product.h"
 
 template<int num_acc_>
 void blocked_mult_with_right_column_to_output_column(
@@ -56,19 +40,22 @@ void blocked_mult_with_right_column_to_output_column(
                 const std::size_t cend = c + cnum;
 
                 for (auto hcopy = h; hcopy < hend; ++hcopy) {
+                    const auto& rightcol = rhs[hcopy];
+                    auto& outcol = product[hcopy];
                     for (auto rcopy = r; rcopy < rend; ++rcopy) {
                         if constexpr(num_acc_ == 1) {
-                            product[hcopy][rcopy] = std::inner_product(
-                                rhs[hcopy].begin() + c,
-                                rhs[hcopy].begin() + cend,
+                            outcol[rcopy] = std::inner_product(
+                                rightcol.begin() + c,
+                                rightcol.begin() + cend,
                                 matrix[rcopy].begin() + c,
-                                product[hcopy][rcopy]
+                                outcol[rcopy]
                             );
                         } else {
-                            product[hcopy][rcopy] += super_dot_product<num_acc_>(
+                            product[hcopy][rcopy] = super_dot_product<num_acc_>(
                                 cnum,
-                                rhs[hcopy].begin() + c,
-                                matrix[rcopy].begin() + c
+                                rightcol.begin() + c,
+                                matrix[rcopy].begin() + c,
+                                outcol[rcopy]
                             );
                         }
                     }
@@ -104,20 +91,24 @@ void blocked_mult_with_right_column_to_output_row(
                 const std::size_t cnum = std::min(line_size, NC - c);
                 const std::size_t cend = c + cnum;
 
-                for (auto hcopy = h; hcopy < hend; ++hcopy) {
-                    for (auto rcopy = r; rcopy < rend; ++rcopy) {
+                for (auto rcopy = r; rcopy < rend; ++rcopy) {
+                    auto& outrow = product[rcopy];
+                    const auto& matrow = matrix[rcopy];
+                    for (auto hcopy = h; hcopy < hend; ++hcopy) {
+                        const auto& rightcol = rhs[hcopy];
                         if constexpr(num_acc_ == 1) {
-                            product[rcopy][hcopy] = std::inner_product(
-                                rhs[hcopy].begin() + c,
-                                rhs[hcopy].begin() + cend,
+                            outrow[hcopy] = std::inner_product(
+                                rightcol.begin() + c,
+                                rightcol.begin() + cend,
                                 matrix[rcopy].begin() + c,
-                                product[rcopy][hcopy]
+                                outrow[hcopy]
                             );
                         } else {
-                            product[rcopy][hcopy] += super_dot_product<num_acc_>(
+                            outrow[hcopy] = super_dot_product<num_acc_>(
                                 cnum,
-                                rhs[hcopy].begin() + c,
-                                matrix[rcopy].begin() + c
+                                rightcol.begin() + c,
+                                matrow.begin() + c,
+                                outrow[hcopy]
                             );
                         }
                     }
@@ -152,8 +143,9 @@ void blocked_mult_with_right_row_to_output_column(
                 const std::size_t hend = h + std::min(line_size, NRHS - h);
 
                 for (auto rcopy = r; rcopy < rend; ++rcopy) {
+                    const auto& matrow = matrix[rcopy];
                     for (auto ccopy = c; ccopy < cend; ++ccopy) {
-                        const auto mult = matrix[rcopy][ccopy];
+                        const auto mult = matrow[ccopy];
                         const auto& right = rhs[ccopy];
                         for (auto hcopy = h; hcopy < hend; ++hcopy) { // writes are not contiguous... don't think there's a better way to do this.
                             product[hcopy][rcopy] += mult * right[hcopy];
