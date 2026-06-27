@@ -68,7 +68,7 @@ int main(int argc, char ** argv) {
     app.add_option("-s,--seed", seed, "Seed for the simulated data")->default_val(69);
     CLI11_PARSE(app, argc, argv);
 
-    // Simulating a row-major matrix.
+    // Simulating a column-major matrix.
     std::mt19937_64 rng(seed);
     std::vector<std::vector<FLOAT> > matrix(NC);
     std::normal_distribution<> dist;
