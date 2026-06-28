@@ -44,6 +44,36 @@ void blocked_mult_with_right_row_to_output_column(
     }
 }
 
+void blocked_mult_with_right_row_to_output_row(
+    const std::size_t NR,
+    const std::size_t NC,
+    const std::vector<std::vector<FLOAT> >& matrix,
+    const std::size_t NRHS,
+    const std::vector<std::vector<FLOAT> >& rhs_value,
+    const std::vector<std::vector<int> >& rhs_index,
+    std::vector<std::vector<FLOAT> >& product,
+    std::size_t line_size
+) {
+    for (std::size_t c = 0; c < NC; ++c) {
+        const auto& matcol = matrix[c];
+        const auto& values = rhs_value[c];
+        const auto& indices = rhs_index[c];
+        const std::size_t nnz = values.size();
+        std::size_t x = 0;
+        while (x < nnz) {
+            const std::size_t xend = x + std::min(line_size, nnz - x);
+            for (std::size_t r = 0; r < NR; ++r) {
+                const auto mult = matcol[r];
+                auto& out = product[r];
+                for (std::size_t xcopy = x; xcopy < xend; ++xcopy) {
+                    out[indices[xcopy]] += values[xcopy] * mult;
+                }
+            }
+            x = xend;
+        }
+    }
+}
+
 int main(int argc, char ** argv) {
     CLI::App app{"Dense column matrix x sparse matrix performance tests"};
     std::size_t NR;
@@ -194,6 +224,35 @@ int main(int argc, char ** argv) {
         return blocked_rr_co_1024.front().front() + blocked_rr_co_1024.front().back() + blocked_rr_co_1024.back().front() + blocked_rr_co_1024.back().back();
     });
 
+    // Blocked multiplication (row RHS, row output).
+    auto blocked_rr_ro_128 = preallocate_row_output();
+    names.emplace_back("blocked (128), row RHS, row output");
+    funs.emplace_back([&]() -> FLOAT {
+        blocked_mult_with_right_row_to_output_row(NR, NC, matrix, NRHS, rhs_value_by_row, rhs_index_by_row, blocked_rr_ro_128, 128);
+        return blocked_rr_ro_128.front().front() + blocked_rr_ro_128.front().back() + blocked_rr_ro_128.back().front() + blocked_rr_ro_128.back().back();
+    });
+
+    auto blocked_rr_ro_256 = preallocate_row_output();
+    names.emplace_back("blocked (256), row RHS, row output");
+    funs.emplace_back([&]() -> FLOAT {
+        blocked_mult_with_right_row_to_output_row(NR, NC, matrix, NRHS, rhs_value_by_row, rhs_index_by_row, blocked_rr_ro_256, 256);
+        return blocked_rr_ro_256.front().front() + blocked_rr_ro_256.front().back() + blocked_rr_ro_256.back().front() + blocked_rr_ro_256.back().back();
+    });
+
+    auto blocked_rr_ro_512 = preallocate_row_output();
+    names.emplace_back("blocked (512), row RHS, row output");
+    funs.emplace_back([&]() -> FLOAT {
+        blocked_mult_with_right_row_to_output_row(NR, NC, matrix, NRHS, rhs_value_by_row, rhs_index_by_row, blocked_rr_ro_512, 512);
+        return blocked_rr_ro_512.front().front() + blocked_rr_ro_512.front().back() + blocked_rr_ro_512.back().front() + blocked_rr_ro_512.back().back();
+    });
+
+    auto blocked_rr_ro_1024 = preallocate_row_output();
+    names.emplace_back("blocked (1024), row RHS, row output");
+    funs.emplace_back([&]() -> FLOAT {
+        blocked_mult_with_right_row_to_output_row(NR, NC, matrix, NRHS, rhs_value_by_row, rhs_index_by_row, blocked_rr_ro_1024, 1024);
+        return blocked_rr_ro_1024.front().front() + blocked_rr_ro_1024.front().back() + blocked_rr_ro_1024.back().front() + blocked_rr_ro_1024.back().back();
+    });
+
     // Performing the iterations.
     eztimer::Options opt;
     opt.iterations = iterations;
@@ -204,6 +263,10 @@ int main(int argc, char ** argv) {
         reset_output(blocked_rr_co_256);
         reset_output(blocked_rr_co_512);
         reset_output(blocked_rr_co_1024);
+        reset_output(blocked_rr_ro_128);
+        reset_output(blocked_rr_ro_256);
+        reset_output(blocked_rr_ro_512);
+        reset_output(blocked_rr_ro_1024);
     };
 
     std::optional<FLOAT> expected;
