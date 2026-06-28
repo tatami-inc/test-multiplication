@@ -1,21 +1,47 @@
-# Dense row-major product with dense matrix
+# Dense column-major product with dense matrix
 
 ## Strategies
 
-For row-major RHS and row output, the naive strategy is to do a vector multiply-add for each row of the RHS matrix.
+All strategies must iterate across consecutive columns of the LHS matrix in the outermost loop.
+We will be loading columns on demand via the **tatami** interface, so the full matrix will not be available for random access.
 
-For all other configurations, the naive strategy is to do a vector multiply-add for each column of the LHS matrix.
-This is best done with column-major output as both inputs and outputs are contiguous and the entire operation is trivially vectorizable.
-However, we also test with column-major output as well.
+### Naive row-major RHS
 
-The blocked approach essentially re-implements the naive approach by only using submatrices of size $B$-by-$C$ at any given time.
-For row-major RHS and output, we only process $B$ columns of the LHS matrix, $B$ columns of the LHS matrix, and $C$ columns of the RHS matrix at once;
-for all other configurations, we process $B$ columns of the LHS matrix, $C$ columns of the LHS matrix, and $B$ columns of the RHS matrix at once.
+The general idea is to compute an outer product between each RHS column and LHS row, and iteratively add the outer products together in the output matrix.
+
+For row-major output, we iterate across each element of a LHS column and we perform a vector multiply-add for the corresponding RHS row with the corresponding output row.
+We repeat this for the next pair of LHS column/RHS row until both matrices are traversed.
+
+For column-major output, we iterate across each element of an RHS row and we perform a vector multiply-add for the corresponding LHS column with the corresponding output column.
+We repeat this for the next pair of LHS column/RHS row until both matrices are traversed.
+
+### Naive column-major RHS
+
+For column-major output, we iterate across the $i$-th elements of all RHS columns and we perform a vector multiply-add for the $i$-th LHS column with the $i$-th output column.
+We repeat this for all $i$ until all columns of the LHS matrix are traversed.
+
+For row-major output, the process is the same as that of column-major output, except that the output of the vector multiply-add is not contiguous.
+There's not much that can be done here as the output's layout does not align with that of the LHS or RHS matrices.
+
+### Blocking
+
+The blocked approach computes outer products from small blocks of the input matrices, i.e., submatrices of size $BC$.
+The idea is to keep data into cache for faster re-use, e.g., when a LHS column is re-used to compute the outer product with multiple RHS row elements.
+
+- For row-major RHS with row-major output, we consider $B$-by-$C$ blocks of the RHS matrix, i.e., $B$ rows and $C$ columns.
+  Once all outer products are computed for one block, we move onto the next $C$ columns of the RHS matrix, to take advantage of contiguous access along the RHS rows;
+  once those are exhausted, we move onto the next $B$ rows.
+- For all other configurations, we consider $C$-by-$B$ blocks of the LHS matrix, i.e., $C$ rows and $B$ columns.
+  Once all outer products are computed for one block, we move onto the next $C$ rows of the LHS matrix, to take advantage of fast contiguous access along the LHS columns;
+  once those are exhausted, we move onto the next $B$ columns.
+
 We test a range of different values for the $B$ given a fixed value for $BC = 1024$, i.e., a thousand elements in the cache at once.
 (The actual number of elements in the cache is more like $2BC$ as we need to hold the output submatrix as well.)
 Even for 8-byte types like `double`, this should easily fit into a modern L1 cache.
+We keep $B$ relatively small so that we don't have to keep a large block of columns in memory, while $C$ is relatively large to reduce overhead of the vectorizable loops.
 
-For column-major RHS and column output, we use the best approach from the [`multiple_vectors`](../multiple_vectors) tests, just for comparison.
+For column-major RHS and column output, we only use the best approach from the [`multiple_vectors`](../multiple_vectors) tests.
+This avoids redundant tests and saves us a bit of time.
 
 ## Instructions
 
@@ -307,9 +333,10 @@ blocked (32), row RHS, row output       : 0.173755 ± 0.000688976
 
 ## Conclusion
 
-Blocking provides some assistance here, depending on the exact shape of the matrices involved.
+Blocking consistently provides some assistance across a range of matrix shapes.
 The exception is that of single-precision floats where blocking is slightly worse than the naive approach, probably because the data is already small enough to fit into cache. 
 A block size of 16 seems to perform the best, or nearly so, in a wide range of scenarios.
 
 With blocking, most configurations can be used here without too much difference in performance.
 The exception is that of column-major RHS with row-major output, which is relatively slow as the inner loop involves a lot of non-contiguous access.
+If row-major output is desired, it may be better to coerce the RHS matrix into a row-major format prior to multiplication.

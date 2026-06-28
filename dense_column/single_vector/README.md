@@ -2,11 +2,19 @@
 
 ## Overview 
 
+All strategies must iterate across consecutive columns of the LHS matrix in the outermost loop.
+We will be loading columns on demand via the **tatami** interface, so the full matrix will not be available for random access.
+
+### Naive 
+
 The naive approach involves taking each column of the LHS matrix, scaling it by the corresponding RHS value, and then adding it to the output vector.
+This vector multiply-add involves contiguous memory accesses and is very amenable to auto-vectorization.
+
+### Blocking
 
 The blocked approach does the same but processes $B$ columns at once, taking $C$ elements from each column.
 We test various values for $B$, with the additional constraint of $BC = 1024$ to ensure that the current blocks fit into the lowest cache level.
-This approach ensures that the output vector is only loaded once per $B$ columns, at the cost of some looping overhead.
+The aim is to improve re-use of the cached parts of the output vector, which is now only loaded once per $B$ columns.
 
 ## Instructions
 
