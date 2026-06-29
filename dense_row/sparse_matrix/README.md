@@ -2,16 +2,42 @@
 
 ## Strategies
 
-For column-major RHS matrices, we can compute a dense-sparse dot product for each LHS row and RHS column.
-The dot product itself can be augmented with multiple accumulators.
+All strategies must iterate across consecutive columns of the LHS matrix in the outermost loop.
+We will be loading columns on demand via the **tatami** interface, so the full matrix will not be available for random access.
 
-For row-major RHS matrices, we perform a sparse vector multiply-add for each RHS row.
-This is best done with row-major output as both inputs and outputs are contiguous. 
-However, we also test with column-major output as well.
+### Naive column-major RHS
+
+For each LHS row, we iterate over the RHS columns and compute a dense-sparse dot product for each one.
+This can be trivially stored in both column- and row-major output;
+the output layout should not have a major impact on performance as we don't iterate over the output in the innermost loop (i.e., the dot product).
+
+### Accumulators, column-major RHS
+
+This is the same as the naive approach, except that the sparse vector dot product is computed with multiple accumulators.
+The idea is to break dependency chains in the CPU's instruction pipeline by allowing multiple accumulations to occur in parallel.
+It also provides some opportunities for auto-vectorization of the sum, though this relies on some good gather instructions.
+
+### Naive row-major RHS
+
+The general idea is to accumulate the partial dot products by processing each RHS row.
+
+If the output is row-major: for each LHS row, we iterate across the RHS rows.
+For each RHS row, we perform a sparse vector multiply-add of the corresponding element from the LHS row with the relevant output row.
+This involves only operating on the structural non-zeros of the sparse RHS row, so it is not contiguous, but at least data locality is preserved.
+
+If the output is column-major, the process is much the same except that the output is done with conceptual output rows.
+The conceptual $i$-th output row consists of the $i$-th element from each output column, which involves many scattered memory accesses.
+There's not much that can be done here as the output's layout does not align with that of the LHS or RHS matrices.
+
+### Comments on blocking
 
 We do not consider blocking as all of the innermost loops involve iteration over the sparse indices.
-We can't easily block as we can't quickly determine where to even restart the innermost loop across blocks.
+We can't easily block with fixed-size submatrices as we can't quickly determine where to restart the innermost loop across blocks.
 Moreover, the blocking overhead can quickly become larger than the processing itself if the block size is smaller than the inverse of the density.
+
+I suppose we could use variable-size "blocks" with a fixed number of non-zero elements in each RHS row/column.
+However, different RHS rows/columns have different number of structural non-zeros, so we'd be wasting iterations on rows/columns that have no more non-zeros.
+Additionally, the corresponding block of the dense LHS/output matrix could be of arbitrary size and might not fit into cache, which defeats the purpose of blocking.
 
 ## Instructions
 

@@ -1,19 +1,36 @@
-# Dense row-major versus a single vector
+# Dense row-major product with a single vector
 
-## Overview 
+## Strategies
 
-The naive approach involves computing dot products for each row of the LHS matrix and the RHS vector.
+All strategies must iterate across consecutive rows of the LHS matrix in the outermost loop.
+We will be loading rows on demand via the **tatami** interface, so the full matrix will not be available for random access.
 
-The blocked approach takes $B$ rows of the LHS matrix and, for each row, computes the dot product of its first $C$ elements against the first $L$ elements of the RHS vector.
-It repeatedly adds the dot product of the next $C$ elements until all columns of the LHS matrix have been traversed.
-Then, it proceeds to the next $B$ rows until all rows have been traversed.
+### Naive
+
+For each LHS row, we compute the dot product against the RHS vector.
+
+### Accumulators
+
+This is the same as the naive approach, except that the dot product is computed with multiple accumulators.
+The idea is to break dependency chains in the CPU's instruction pipeline by allowing multiple accumulations to occur in parallel.
+It also provides some opportunities for auto-vectorization of the sum.
+
+### Blocking
+
+We take $B$ rows of the LHS matrix and, for each row, compute the partial dot product of its first $C$ elements with the RHS vector.
+We repeat this with the next $C$ elements until all elements of the current block of LHS rows have been traversed.
+Then, we proceed to the next $B$ LHS rows until all rows have been traversed.
+
+The idea is to keep the parts of the RHS vector in cache for each block of $B$ rows, such that we don't have to reload it for every single row.
 We test a range of different values for the $B$ given a fixed value for $BC = 1024$, i.e., a thousand elements in the cache at once.
 (The actual number in the cache is more like $(B + 1)C$, to account for the elements of the RHS vector.)
 Even for 8-byte types like `double`, this should easily fit into a modern L1 cache.
 
-Both the naive and blocked approaches can be augmented with the use of multiple accumulators for the dot product.
+### Blocking with accumulators
+
+The blocking approach can also use multiple accumulators in each of its partial dot products.
 To keep things simple, we only consider the performance of blocking with 4 accumulators,
-given that it's better than 2 and only slightly worse than 8.
+given that it's better than 2 and only slightly worse than 8 in the naive approach.
 Too many accumulators could interfere with instruction caching and increase register pressure.
 
 ## Instructions
@@ -134,10 +151,10 @@ Use of multiple accumulators helps a lot, presumably because it improves paralle
 
 Blocking gives a moderate speed-up with a block size of 16 elements.
 This is probably due to improved cache efficiency, as the RHS vector does not need to be constantly reloaded per LHS row.
-However, the naive approach with multiple accumulators is still faster that blocking (with or without multiple accumulators).
+However, the naive approach with multiple accumulators is still faster that blocking, with or without multiple accumulators.
 It seems that the lack of looping overhead outweighs the theoretical cache suboptimality.
 
-In any case, this result is nice as it means that we can get good performance without blocking.
+This result is helpful as it means that we can get good performance without blocking.
 Specifically, blocking is annoying as we need to allocate more space to load multiple rows from a **tatami** matrix.
 This would force us to make judgement calls on the speed-memory trade-off.
 Now, we can just load a single row and use the naive approach with multiple accumulators.
