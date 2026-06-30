@@ -27,7 +27,7 @@ We could consider using variable-size "blocks" of multiple LHS rows, which conta
 This would improve the efficiency of traversal along the sparse rows by making the overhead (mostly) proportional to the number of non-zero elements processed.
 However, different LHS rows have different number of structural non-zeros, so towards the end of each row, we'd be wasting iterations on rows that have no more non-zeros.
 Additionally, for each sparse "block" of this nature, we would still need to access the union of all indices of the structural non-zeros in the dense RHS vector.
-The non-zero values can be arbitrarily distributed so we might end up using the entirety of the RHS vector. 
+The non-zero values can be arbitrarily distributed so we might end up using the entirety of the RHS vector, which might not fit into cache.
 
 ## Instructions
 

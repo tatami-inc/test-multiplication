@@ -13,37 +13,7 @@
 #define FLOAT float
 #endif
 
-template<int num_acc_, class Values_, class Indices_, class Dense_>
-FLOAT dense_sparse_dot_product(const Values_& values, const Indices_& indices, const Dense_& dense) {
-    const std::size_t num_non_zeros = values.size();
-
-    if constexpr(num_acc_ == 1) {
-        FLOAT dot = 0;
-        for (std::size_t i = 0; i < num_non_zeros; ++i) {
-            dot += dense[indices[i]] * values[i];
-        }
-        return dot;
-
-    } else {
-        std::array<FLOAT, num_acc_> dots{};
-        const std::size_t cycles = num_non_zeros / num_acc_;
-        const std::size_t remainder = num_non_zeros % num_acc_;
-
-        for (std::size_t c = 0; c < cycles; ++c) {
-            for (std::size_t i = 0; i < num_acc_; ++i) {
-                const auto idx = c * num_acc_ + i;
-                dots[i] += dense[indices[idx]] * values[idx]; 
-            }
-        }
-
-        FLOAT extras = 0;
-        for (std::size_t i = 0; i < remainder; ++i) {
-            const auto idx = cycles * num_acc_ + i;
-            extras += dense[indices[idx]] * values[idx];
-        }
-        return std::accumulate(dots.begin(), dots.end(), extras);
-    }
-}
+#include "dense_sparse_dot_product.h"
 
 int main(int argc, char ** argv) {
     CLI::App app{"Dense row matrix x sparse matrix performance tests"};
