@@ -28,25 +28,32 @@ For each structural non-zero, we perform a vectorized multiply-add of the corres
 For row-major output, we iterate down the LHS column and compute a sparse vector multiply-add of the corresponding RHS row to the corresponding row of the output matrix.
 This will be less efficient than the column-major output as the writes will not be contiguous, but oh well.
 
-## Blocked row-major RHS
+### Blocked row-major RHS
 
 For column output, we consider a block of $C$ elements of each LHS column when computing the outer product for each structural non-zero of an RHS row.
 Once all structural non-zeros are processed, we move to the next block of $C$ elements and repeat the outer product calculation.
 This is done until the entire LHS column is processed, and then we move onto the next column.
 Our hope is to improve caching of the "active" part of each LHS column when it is repeatedly used to compute the outer product across each RHS row.
-Otherwise, for LHS matrices with many rows, the start of the column would need to be loaded back into cache per non-zero element.
+Otherwise, for LHS matrices with many rows, the start of the column would need to be loaded back into cache per non-zero element in the RHS row.
 
 For row output, we consider a block of $C$ structural non-zero elements of each RHS row when computing the outer product for each element of an LHS column.
 Once all column elements are processed, we move to the next block of $C$ structural non-zeros and repeat the outer product calculation.
 This is done until the entire RHS row is processed, and then we move onto the next row.
 Again, the hope is to improve caching of the active non-zero elements for each RHS row.
 
-More general-purpose blocking schemes are difficult as we can't define fixed-size submatrices easily in the presence of sparse data.
+### More comments on blocking
 
-- As we are forced to iterate across each row of the RHS matrix in its entirey, the submatrix can be of unbounded size and is not guaranteed to fit into cache.
-  This defeats the whole purpose of blocking if accessing one part of the submatrix causes another part to be evicted from cache.
-- Even if we did consider a block of RHS rows, each row would likely have its structural non-zeros at different positions.
-  This means that we would probably not even be re-using the same output columns for different RHS rows.
+Typical blocking schemes are difficult to implement here as sparse data don't lend themselves to fixed-size submatrices.
+If a block is small enough to fit into cache, it is likely to introduce looping overhead that is comparable to the actual calculations on the structural non-zeros.
+It is also difficult to find the starting structural non-zeros of each block, requiring either a binary search or extra overhead to track the final positions of the preceding block.
+If we can't reasonably operate on a block of multiple RHS rows, then there's no point in loading a block of multiple LHS columns either, given that they have a 1:1 correspondence.
+
+We might consider using variable-size "blocks" of multiple RHS rows/columns, which contain no more than a certain number of non-zero elements from each RHS row/column.
+This would control the overhead by making it (mostly) proportional to the number of non-zero elements processed.
+However, different RHS rows/columns have different number of structural non-zeros, so towards the end, we'd still be wasting iterations on rows/columns that have no more non-zeros.
+Additionally, for each sparse "block" of this nature, we would still need to access the union of all indices of the structural non-zeros in the dense LHS/output matrix.
+The non-zero values can be arbitrarily distributed so the union is not guaranteed to fit into a typical L1 cache, which defeats the purpose of blocking.
+Indeed, for column-major output, we would probably not even be re-using the same output columns for different RHS rows.
 
 ## Instructions
 
