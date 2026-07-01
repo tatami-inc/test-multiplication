@@ -1,4 +1,4 @@
-# Dense row-major product with sparse matrix
+# Dense row-major LHS, sparse matrix RHS
 
 ## Strategies
 
@@ -11,11 +11,10 @@ For each LHS row, we iterate over the RHS columns and compute a dense-sparse dot
 This can be trivially stored in both column- and row-major output;
 the output layout should not have a major impact on performance as we don't iterate over the output in the innermost loop (i.e., the dot product).
 
-### Accumulators, column-major RHS
+### Naive column-major RHS with accumulators
 
 This is the same as the naive approach, except that the sparse vector dot product is computed with multiple accumulators.
-The idea is to break dependency chains in the CPU's instruction pipeline by allowing multiple accumulations to occur in parallel.
-It also provides some opportunities for auto-vectorization of the sum, though this relies on some good gather instructions.
+Check out the explanation in [`general/README.md`](../../general/README.md).
 
 ### Naive row-major RHS
 
@@ -29,39 +28,33 @@ If the output is column-major, the process is much the same except that the outp
 The conceptual $i$-th output row consists of the $i$-th element from each output column, which involves many scattered memory accesses.
 There's not much that can be done here as the output's layout does not align with that of the LHS or RHS matrices.
 
-### Blocking 
+### Blocking column-major RHS
 
-For column-major RHS, we can implement a blocking scheme to improve cache re-use of each RHS column across multiple LHS rows.
-Specifically, for each RHS column, we consider a block of $C$ structural non-zeros.
+We'll use the scheme described in the "Limited blocking" section in [`general/README.md`](../../general/README.md). 
+For each sparse RHS column, we consider a block of $C$ structural non-zeros.
 We load in a block of $B$ LHS rows and we compute the partial dot product of the $C$ non-zeros with each of those rows.
-The idea is to only reload this block of $C$ non-zeros per $B$ LHS rows rather than for each LHS row.
-We repeat the calculation with the next block of $C$ non-zeros until the entire RHS column is processed, then we move onto the next column.
+We repeat the calculation with the next block of $C$ non-zeros until the entire RHS column is processed, then we move onto the next RHS column.
 Once all RHS columns are processed, we consider the next block of $B$ rows.
+
+The idea is to only reload each block of $C$ non-zeros per $B$ LHS rows rather than for each LHS row.
+We try multiple values of $B$ with a fixed $C = 256$.
+
 For a valid comparison with the other strategies, we use 4 accumulators to compute the dot product, given that this is (near-)optimal in the non-blocked strategies.
 
-For row-major RHS, we can use a similar blocking scheme to improve cache re-use of each RHS row across multiple LHS rows.
-Specifically, for each RHS row, we consider a block of $C$ structural non-zeros.
-We load in a block of $B$ LHS rows and we compute the sparse vector multiply-add for the $C$ non-zeros with the corresponding scaling factor from each LHS row.
-The idea is to only reload this block of $C$ non-zeros per $B$ LHS rows rather than for each LHS row.
+### Blocking row-major RHS
+
+For each RHS row, we consider a block of $C$ structural non-zeros.
+We load in a block of $B$ LHS rows and, for each LHS row, we perform a sparse vector multiply-add for the $C$ non-zeros to an output row,
+using the corresponding element from the LHS row as the scaling factor. 
 We repeat this with the next block of $C$ non-zeros until the entire RHS row is processed, then we move onto the next row.
 Once all RHS rows are processed, we consider the next block of $B$ rows.
 
-In both cases, we try various values of $B$ and we set $C = 256$.
-We could actually set $C$ to be much larger as we are only concerned about keeping the structural non-zeros in the cache;
-we don't have to worry about any $B$-by-$C$ submatrices here.
-However, we do want to catch at least some looping overhead so we don't use $C$ that is so large that all non-zeros will be cached in all circumstances.
+The idea is to only reload this block of $C$ non-zeros per $B$ LHS rows rather than for each LHS row.
+Again, we try multiple values of $B$ with the constraint that $BC = 256$.
+Check out the "Limited blocking" section in [`general/README.md`](../../general/README.md) for more details;
+though the layout is not exactly the same, we are still dealing with accesses to a dense matrix (output instead of LHS).
 
-We do not consider conventional blocking with multiple RHS rows/columns as all of the innermost loops involve iteration over the sparse indices.
-For fixed-size blocks, the blocking overhead would be comparable to the actual calculations within each block when the data is sparse.
-In fact, the overhead would be larger than the calculations themselves if the block size is smaller than the inverse of the density.
-Additionally, we can't easily determine where to restart the innermost loop for each new block of RHS rows/columns.
-Doing so would require either a binary search or extra tracking of the positions of the last non-zero element for each sparse row/column in the preceding block.
-
-In theory, we could use variable-size "blocks" of multiple RHS rows/columns, which contain no more than a certain number of non-zero elements from each RHS row/column.
-This would improve the efficiency of traversal along the sparse row/column by making the overhead (mostly) proportional to the number of non-zero elements processed.
-However, different RHS rows/columns have different number of structural non-zeros, so towards the end of each row/column, we'd be wasting iterations on rows/columns that have no more non-zeros.
-Additionally, for each sparse "block" of this nature, we would still need to access the union of all indices of the structural non-zeros in the dense LHS/output matrix.
-The non-zero values can be arbitrarily distributed so the union is not guaranteed to fit into a typical L1 cache, which defeats the purpose of blocking.
+For a valid comparison with the other strategies, we use 4 accumulators to compute the dot product, given that this is (near-)optimal in the non-blocked strategies.
 
 ## Instructions
 
@@ -445,18 +438,9 @@ Performance is pretty good for a row-major RHS matrix with row-major output.
 I find this interesting because a sparse vector multiply-add is not easily vectorizable.
 The values of the indices are not known to the compiler, so it can't just execute the instructions in parallel as it can't be sure that the indices don't overlap.
 
-The behavior of blocking is interesting as it is sometimes helpful and sometimes detrimental:
-
-- It's a pessimisation when the extent of the relevant dimension (i.e, RHS rows for row-major, or RHS columns for column-major) is large.
-  This is not what we'd expect as blocking should mitigate cache misses when the RHS row/column has many structural non-zeros to be re-used across multiple LHS rows.
-  The obvious culprit is looping overhead, though $C$ should be more than large enough to offset that.
-  In fact, performance gets even worse with greater $B$, which is definitely unexpected as this should have improved the rate of re-use.
-  I suspect the real cause is that cache lines from earlier LHS/output rows in the current block are being evicted by the time we get to the later rows.
-  If these cache lines are "hanging off the edge" of the previous block, they could have provided fast access for the next block of $C$ non-zeros;
-  this is no longer possible when they are evicted.
-- It's an improvement when the extent of the relevant dimension is small.
-  There is no looping overhead as $C$ is large enough to hold all structural non-zeros in memory for each RHS row/column.
-  Thus, there is only optimal re-use of the cached RHS row/column across the current block of LHS rows.
-  Indeed, if the dimension extent is small enough, even the current block of dense LHS/output rows might remain in cache for re-use by the next RHS row/column.
-
-So it seems like the absence of blocking is actually more scalable as the dimension extent increases.
+Strangely, blocking is sometimes helpful and sometimes detrimental.
+In general, it's a pessimisation when the extent of the sparse vector is large but an improvement when it's short, and this difference is amplified by increasing $B$.
+This is not explained by looping overhead as $C$ is fixed for all $B$ so the number of loop restarts should be constant.
+My guess is that we're misunderstanding the cache behavior of the accompanying dense vectors.
+Perhaps when the extent is short, the entire block of dense vectors can persist in some level of the cache hierarchy for re-use with the next sparse vector;
+but for larger extents, we need to load in the next part of the dense vectors, and these may have been evicted from the cache if $B$ is too large.

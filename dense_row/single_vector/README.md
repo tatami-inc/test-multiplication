@@ -1,4 +1,4 @@
-# Dense row-major product with a single vector
+# Dense row-major LHS, single vector RHS
 
 ## Strategies
 
@@ -9,29 +9,30 @@ We will be loading rows on demand via the **tatami** interface, so the full matr
 
 For each LHS row, we compute the dot product against the RHS vector.
 
-### Accumulators
+### Naive with multiple accumulators
 
 This is the same as the naive approach, except that the dot product is computed with multiple accumulators.
-The idea is to break dependency chains in the CPU's instruction pipeline by allowing multiple accumulations to occur in parallel.
-It also provides some opportunities for auto-vectorization of the sum.
+Check out the explanation in [`general/README.md`](../../general/README.md).
 
 ### Blocking
 
-We take $B$ rows of the LHS matrix and, for each row, compute the partial dot product of its first $C$ elements with the RHS vector.
-We repeat this with the next $C$ elements until all elements of the current block of LHS rows have been traversed.
-Then, we proceed to the next $B$ LHS rows until all rows have been traversed.
+We consider a $B$-by-$C$ LHS submatrix and a $C$-by-1 RHS submatrix (i.e., just a part of the RHS vector).
+For each row in this block, we compute the partial dot product with the RHS submatrix.
+We repeat this for the next $C$ elements until all LHS columns are traversed, 
+at which point we add the partial products together to obtain the final dot product for each row in this submatrix.
+Then, we proceed to the next block of $B$ LHS rows until all rows have been traversed.
 
 The idea is to keep the parts of the RHS vector in cache for each block of $B$ rows, such that we don't have to reload it for every single row.
 We test a range of different values for the $B$ given a fixed value for $BC = 1024$, i.e., a thousand elements in the cache at once.
-(The actual number in the cache is more like $(B + 1)C$, to account for the elements of the RHS vector.)
-Even for 8-byte types like `double`, this should easily fit into a modern L1 cache.
+(Technically, our RHS "submatrix" only has one column so we could reasonably increase $BC$ while still fitting in a typical L1 cache.
+But for simplicity's sake, we will stick with the limit used in the other tests.)
+Check out [`general/README.md`](../../general/README.md) for more details.
 
-### Blocking with accumulators
+### Blocking with multiple accumulators
 
 The blocking approach can also use multiple accumulators in each of its partial dot products.
 To keep things simple, we only consider the performance of blocking with 4 accumulators,
 given that it's better than 2 and only slightly worse than 8 in the naive approach.
-Too many accumulators could interfere with instruction caching and increase register pressure.
 
 ## Instructions
 

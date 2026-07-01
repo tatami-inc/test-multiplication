@@ -17,17 +17,8 @@ It also provides some opportunities for auto-vectorization of the sum.
 
 ### Comments on blocking 
 
-In theory, we could try to re-use a block of the RHS vector across multiple LHS rows, to avoid having to reload it from memory when computing the dot product.
-The problem is that, for fixed-size blocks, the blocking overhead would be comparable to the actual calculations within each block when the data is sparse.
-In fact, the overhead would be larger than the calculations themselves if the block size is smaller than the inverse of the density.
-Additionally, we can't easily determine where to restart the innermost loop for each new block of LHS rows.
-Doing so would require either a binary search or extra tracking of the positions of the last non-zero element for each sparse row/column in the preceding block.
-
-We could consider using variable-size "blocks" of multiple LHS rows, which contain no more than a certain number of non-zero elements from each RHS row/column.
-This would improve the efficiency of traversal along the sparse rows by making the overhead (mostly) proportional to the number of non-zero elements processed.
-However, different LHS rows have different number of structural non-zeros, so towards the end of each row, we'd be wasting iterations on rows that have no more non-zeros.
-Additionally, for each sparse "block" of this nature, we would still need to access the union of all indices of the structural non-zeros in the dense RHS vector.
-The non-zero values can be arbitrarily distributed so we might end up using the entirety of the RHS vector, which might not fit into cache.
+We don't test any blocking schemes here as it is difficult to consider a block of multiple sparse LHS rows, see [`general/README.md`](../../general/README.md) for comments.
+There's only one RHS vector so there's no opportunity for blocking on the RHS either.
 
 ## Instructions
 

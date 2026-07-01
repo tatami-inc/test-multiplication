@@ -1,4 +1,4 @@
-# Dense row-major product with dense matrix
+# Dense row-major LHS, dense matrix RHS
 
 ## Strategies
 
@@ -10,12 +10,24 @@ We will be loading rows on demand via the **tatami** interface, so the full matr
 The general idea is to accumulate the partial dot products by processing each RHS row.
 
 If the output is row-major: for each LHS row, we iterate across the RHS rows.
-For each RHS row, we perform a vector multiply-add of the corresponding element from the LHS row with the relevant output row.
+For each RHS row, we perform a vector multiply-add to the output row using the corresponding element from the LHS row as the scaling factor.
 Each multiply-add involves contiguous memory and is highly amenable to auto-vectorization.
 
 If the output is column-major, the process is much the same except that the output is done with conceptual output rows.
 The conceptual $i$-th output row consists of the $i$-th element from each output column, which is quite non-contiguous.
 There's not much that can be done here as the output's layout does not align with that of the LHS or RHS matrices.
+
+### Blocking, row-major RHS
+
+We consider a $B$-by-$B$ LHS submatrix with $B$-by-$C$ RHS and output submatrices.
+For each part of the RHS row in this block, we perform a vector multipy-add to the corresponding part of the output row with a scaling factor from the LHS block. 
+We repeat this with the next $C$ columns of the RHS matrix, to take advantage of fast access to contiguous memory.
+Once all RHS columns are traversed, we move onto the next $B$ RHS rows;
+and once all RHS rows are traversed, we move onto the next $B$ LHS rows.
+
+The hope is that these submatrices are small enough to keep in cache for fast access.
+We test a range of different values for the $B$ given a fixed value for $BC = 1024$. 
+Check out [`general/README.md`](../../general/README.md) for more details.
 
 ### Column-major RHS
 
@@ -24,20 +36,6 @@ So, for comparison's sake, we'll just use the best approach from that test suite
 
 For row-major output, we'll re-use the best approach for column-major output.
 The change in the output layout should not have a major impact on performance as we don't iterate over the output in the innermost loop (i.e., the dot product).
-
-### Blocking, row-major RHS
-
-We consider $B$-by-$B$ blocks of the LHS matrix with $B$-by-$C$ blocks of the RHS matrix.
-For each part of each RHS row, we perform a vector multipy-add with the LHS scaling factor and the corresponding part of the output matrix.
-We repeat this with the next $C$ columns of the RHS matrix until all columns are traversed;
-then, we repeat this with the next $B$ LHS rows until the entire matrix has been traversed.
-
-The general idea is to only operate on $B$-by-$C$ submatrices (RHS and output) at any given time.
-Thes submatrices are small enough to keep in cache for fast access, reducing cache misses.
-Now, each output and RHS row only needs to be reloaded once per $B$ LHS rows.
-We test a range of different values for the $B$ given a fixed value for $BC = 1024$, i.e., a thousand elements in the cache at once.
-(The actual number is twice that as we need to hold the output as well.)
-Even for 8-byte types like `double`, this should easily fit into a modern L1 cache.
 
 ## Instructions
 

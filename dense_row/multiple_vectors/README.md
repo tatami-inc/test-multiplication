@@ -1,4 +1,4 @@
-# Dense row-major product with multiple vectors
+# Dense row-major LHS, multiple vectors RHS
 
 ## Strategies
 
@@ -7,34 +7,30 @@ We will be loading rows on demand via the **tatami** interface, so the full matr
 
 ### Naive
 
-For each LHS row, we iterate over the RHS vectors and compute the dot product for each one.
+For each LHS row, we iterate over the RHS vectors and compute its dot product.
 
-### Accumulators
+### Naive with accumulators
 
 This is the same as the naive approach, except that the dot product is computed with multiple accumulators.
-The idea is to break dependency chains in the CPU's instruction pipeline by allowing multiple accumulations to occur in parallel.
-It also provides some opportunities for auto-vectorization of the sum.
+Check out the explanation in [`general/README.md`](../../general/README.md).
 
 ### Blocking
 
-We take $B$ rows of the LHS matrix and, for each row, compute the partial dot product of its first $C$ elements with $B$ RHS vectors.
-We repeat this with the next $C$ elements and accumulate the dot product until all elements of the current block of LHS rows/RHS vectors have been traversed.
-Then, we proceed to the next $B$ RHS vectors until all vectors have been traversed.
-Then, we repeat this with the next $B$ LHS rows until the entire matrix has been traversed.
+We consider a $B$-by-$C$ LHS submatrix, $C$-by-$B$ RHS submatrix and $B$-by-$B$ output matrix. 
+We compute the partial product of the LHS and RHS submatrices and store the result in the output matrix.
+We move onto the next $C$ columns of the LHS (i.e., rows of the RHS) and repeat this process, to exploit rapid access to contiguous memory.
+Once all LHS columns are traversed, we add the partial dot products to obtain the final dot product for each LHS row in this submatrix.
+We repeat this process with the next $B$ RHS columns, and once all RHS columns are traversed, we move onto the next $B$ LHS rows.
 
-The general idea is to only operate on a $B$-by-$C$ LHS submatrix and $C$-by-$B$ RHS submatrix at any given time.
-Thes submatrices are small enough to keep in cache for fast access, reducing cache misses.
-Each RHS vector now only needs to be reloaded once per $B$ LHS rows, and each LHS row only needs to be reloaded once per $B$ RHS vectors.
-We test a range of different values for the $B$ given a fixed value for $BC = 1024$, i.e., a thousand elements in the cache at once.
-(The actual number of elements in the cache is actually twice that, as we hold a block from each of the LHS and RHS.)
-Even for 8-byte types like `double`, this should easily fit into a modern L1 cache. 
+The hope is that these submatrices are small enough to keep in cache for fast access.
+We test a range of different values for the $B$ given a fixed value for $BC = 1024$. 
+Check out [`general/README.md`](../../general/README.md) for more details.
 
 ### Blocking with accumulators
 
 The blocking approach can also use multiple accumulators in each of its partial dot products.
 To keep things simple, we only consider the performance of blocking with 4 accumulators,
 given that it's better than 2 and only slightly worse than 8 in the naive approach.
-Too many accumulators could interfere with instruction caching and increase register pressure.
 
 ## Instructions
 

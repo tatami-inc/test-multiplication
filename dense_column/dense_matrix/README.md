@@ -1,4 +1,4 @@
-# Dense column-major product with dense matrix
+# Dense column-major LHS, dense matrix RHS
 
 ## Strategies
 
@@ -25,22 +25,34 @@ Unfortunately, there's not much else we can do here as the output's layout does 
 For column-major output, we don't bother testing the naive approach as we already did so in the [`multiple_vectors`](../multiple_vectors) tests.
 So, for comparison's sake, we'll just use the best approach from that test suite, i.e., blocking with $B = 16$.
 
-### Blocking
+### Blocking, row-major RHS and output
 
-The blocked approach computes outer products from small blocks of the input matrices, i.e., submatrices of size $BC$.
-The idea is to keep data into cache for faster re-use, e.g., when a LHS column is re-used to compute the outer product with multiple RHS row elements.
+We consider $B$-by-$C$ RHS and output submatrices and a $B$-by-$B$ LHS submatrix.
+For each part of the RHS row in this block, we compute an outer product by performing a vector multiply-add to the corresponding output row using an LHS-derived scaling factor.
+Once all outer products are computed for one block, we move onto the next $C$ columns of the RHS matrix, to take advantage of contiguous access along the RHS rows;
+once those are exhausted, we move onto the next $B$ LHS rows, before finally moving onto the next $B$ LHS columns/RHS rows.
 
-- For row-major RHS with row-major output, we consider $B$-by-$C$ blocks of the RHS matrix, i.e., $B$ rows and $C$ columns.
-  Once all outer products are computed for one block, we move onto the next $C$ columns of the RHS matrix, to take advantage of contiguous access along the RHS rows;
-  once those are exhausted, we move onto the next $B$ rows.
-- For all other configurations, we consider $C$-by-$B$ blocks of the LHS matrix, i.e., $C$ rows and $B$ columns.
-  Once all outer products are computed for one block, we move onto the next $C$ rows of the LHS matrix, to take advantage of fast contiguous access along the LHS columns;
-  once those are exhausted, we move onto the next $B$ columns.
+The hope is that these submatrices are small enough to keep in cache for fast access.
+We test a range of different values for the $B$ given a fixed value for $BC = 1024$. 
+Check out [`general/README.md`](../../general/README.md) for more details.
 
-We test a range of different values for the $B$ given a fixed value for $BC = 1024$, i.e., a thousand elements in the cache at once.
-(The actual number of elements in the cache is more like $2BC$ as we need to hold the output submatrix as well.)
-Even for 8-byte types like `double`, this should easily fit into a modern L1 cache.
-We keep $B$ relatively small so that we don't have to keep a large block of columns in memory, while $C$ is relatively large to reduce overhead of the vectorizable loops.
+### Blocking, all other configurations
+
+We consider $C$-by-$B$ LHS and output submatrices and a $B$-by-$B$ RHS submatrix.
+For each part of the LHS column in this block, we compute the outer product by performing a vector multiply-add to an output column using the corresponding RHS scaling factor.
+Once all outer products are computed for one block, we move onto the next $C$ rows of the LHS matrix, to take advantage of fast contiguous access along the LHS columns;
+once those are exhausted, we move onto the next $B$ RHS rows, before finally moving onto the next $B$ LHS columns/RHS rows.
+
+The hope is that these submatrices are small enough to keep in cache for fast access.
+We test a range of different values for the $B$ given a fixed value for $BC = 1024$. 
+Check out [`general/README.md`](../../general/README.md) for more details.
+
+For column-major RHS with row-major output, the output column is only conceptual. 
+Here, the $i$-th "column" consists of the $i$-th element of each output row.
+Not much we can do here.
+
+For column-major RHS and output, we don't bother testing different block sizes;
+we'll just use the best choice ($B = 16$) from the [`multiple_vectors`](../multiple_vectors) tests.
 
 ## Instructions
 

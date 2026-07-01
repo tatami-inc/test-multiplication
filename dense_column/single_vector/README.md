@@ -1,4 +1,4 @@
-# Dense column-major versus a single vector
+# Dense column-major matrix, single vector product
 
 ## Overview 
 
@@ -12,9 +12,16 @@ This vector multiply-add involves contiguous memory accesses and is very amenabl
 
 ### Blocking
 
-The blocked approach does the same but processes $B$ columns at once, taking $C$ elements from each column.
-We test various values for $B$, with the additional constraint of $BC = 1024$ to ensure that the current blocks fit into the lowest cache level.
-The aim is to improve re-use of the cached parts of the output vector, which is now only loaded once per $B$ columns.
+We consider a $C$-by-$B$ LHS submatrix and a $B$-by-1 RHS submatrix (i.e., just a part of the RHS vector).
+For each RHS column in this block, we perform a vector multiply-add with the output vector, using the corresponding LHS value as a scaling factor.
+We repeat this for the next $C$ elements until all LHS rows are traversed.
+Then, we proceed to the next block of $B$ LHS columns until all columns have been traversed.
+
+The idea is to keep the parts of the RHS vector in cache for each block of $B$ columns, such that we don't have to reload it for every single row.
+We test a range of different values for the $B$ given a fixed value for $BC = 1024$, i.e., a thousand elements in the cache at once.
+(Technically, our RHS "submatrix" only has one column so we could reasonably increase $BC$ while still fitting in a typical L1 cache.
+But for simplicity's sake, we will stick with the limit used in the other tests.)
+Check out [`general/README.md`](../../general/README.md) for more details.
 
 ## Instructions
 

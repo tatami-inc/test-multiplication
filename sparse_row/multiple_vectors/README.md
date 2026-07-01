@@ -17,25 +17,20 @@ It also provides some opportunities for auto-vectorization of the sum.
 
 ### Blocking
 
-For each LHS row, we consider a block of $B$ RHS columns.
-For each RHS column, we compute a partial dot product using the first $C$ structural non-zeros of the LHS row.
-We repeat this for all RHS columns in the block.
-Then we proceed to the next $C$ structural non-zeros and repeat the calculation, accumulating dot products until all non-zeros are processed.
-We repeat this entire process until all LHS rows are processed.
-The idea is to keep parts of the LHS row in cache to avoid reloading it for each RHS column.
-We try various values of $B$ and $C$ while keeping $BC = 1024$ to avoid dragging too much into cache.
-Specifically, this avoids eviction of cache lines of RHS columns that might be accessed in the next block of $C$ non-zeros.
+We'll use the scheme described in the "Limited blocking" section in [`general/README.md`](../../general/README.md). 
+For each sparse LHS row, we consider a block of $C$ structural non-zeros and a block of $B$ RHS columns.
+We compute the partial dot product of the $C$ non-zeros with each of the RHS columns.
+We repeat the calculation with the next block of $C$ non-zeros until the entire LHS row is processed, then we move onto the next $B$ RHS columns.
+Once all RHS columns are processed, we consider the next block of $B$ rows.
 
-We do not try conventional blocking as we cannot easily process $B$ LHS rows at once.
-This is not amenable to fixed-size blocking, which would require extra overhead to track the start/end of each block in each RHS row.
-Alternatively, we could consider using variable-size blocks where we take a certain number of non-zero elements from multiple RHS rows;
-however, if these elements have very different positions, the corresponding RHS submatrix may be very large and not fit into the cache.
+The idea is to only reload each block of $C$ non-zeros per $B$ LHS rows rather than for each LHS row.
+We try multiple values of $B$ with a fixed $C = 256$.
 
-We could consider using variable-size "blocks" of multiple LHS rows, which contain no more than a certain number of non-zero elements from each RHS row/column.
-This would improve the efficiency of traversal along the sparse rows by making the overhead (mostly) proportional to the number of non-zero elements processed.
-However, different LHS rows have different number of structural non-zeros, so towards the end of each row, we'd be wasting iterations on rows that have no more non-zeros.
-Additionally, for each sparse "block" of this nature, we would still need to access the union of all indices of the structural non-zeros in the dense RHS vector.
-The non-zero values can be arbitrarily distributed so we might end up using the entirety of the RHS vector. 
+### Blocking with accumulators
+
+The blocking approach can also use multiple accumulators in each of its partial dot products.
+To keep things simple, we only consider the performance of blocking with 4 accumulators,
+given that it's better than 2 and only slightly worse than 8 in the naive approach.
 
 ## Instructions
 

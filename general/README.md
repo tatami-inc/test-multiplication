@@ -58,9 +58,38 @@ The idea is to break dependency chains in the CPU's instruction pipeline by allo
 It also provides some opportunities for auto-vectorization of the sum in the innermost loop.
 However, we don't want to use too many accumulators as this could cause register spills and inflate the program size (or even prevent unrolling of the innermost loop).
 
-## Blocking
+## Sparse dot products
 
-### Dense matrices
+The calculation of a dot product between a sparse and dense vector is fairly straightforward.
+We just iterate over the structural non-zero elements of the sparse vector, retrieve the value of the dense vector at each position, and add its product with the non-zero's value.
+This can be used with multiple accumulators for improved pipelining, though effective auto-vectorization relies on the availability of efficient gather instructions.
+
+```cpp
+// Two accumulators, similar to what Eigen does.
+double dot1 = 0, dot2 = 0;
+if (nnz > 1) { // protect against wraparound.
+    for (std::size_t i = 0; i < nnz - 1; i += 2) {
+        dot1 += dense[index[i]] * value[i];
+        dot2 += dense[index[i + 1]] * value[i + 1];
+    }
+}
+if (N % 2 == 1) {
+    dot1 += dense[index[N- 1]] * value[N - 1];
+}
+double dot = dot1 + dot2;
+```
+
+For sparse-sparse dot products, it is probably not worth it to attempt an interleaved traversal.
+Check out [some other performance tests](https://github.com/tatami-inc/test-sparse_indexed_extraction)
+where we conclude that it is better to just expand one of the sparse vectors into a dense array and use the other one to do a look-up.
+With this approach, the problem just collapses to that of a sparse-dense dot product as described above.
+
+For simplicity, we will assume that there are no IEEE special values in the dense vector.
+These greatly complicate matters as the product of special values with zero does not equal zero.
+If we're expecting to deal with special values, it's probably best to just handle the sparse matrix as a dense matrix...
+though to be honest, I don't see a practical use for the faithful propagation of special values in a matrix product.
+
+## Blocking with dense matrices
 
 For the product of two dense matrices, we can use a blocking approach where we compute the product of two fixed-size submatrices.
 We use small submatrices so that they can be stored in L1 cache for fast re-use of rows/columns. 
@@ -78,12 +107,15 @@ but we generally expect to operate on two $B$-by-$C$ (or $C$-by-$B$) matrices an
   this is fine as the content in those lines will be used when processing the next block that contains the next $C$ elements of the fastest-changing dimension. 
 - $B$ determines the amount of cache re-use.
   In our example of a product of a row-major RHS and column-major LHS, each (part of a) LHS row only needs to be reloaded into cache once every $B$ RHS columns,
-  and each (part of a) RHS column only needs to be reloaded into cache once every $B$ LHS columns.
-  Technically, we could split $B$ into $B_1$ for one submatrix and $B_2$ for the other, but let's keep things simple here.
+  compared to a naive approach where each LHS row may need to be reloaded into memory for each RHS column.
+  Conversely, each (part of) an RHS column only needs to be loaded once every $B$ LHS rows.
+  We could even split $B$ into $B_1$ for one submatrix and $B_2$ for the other, but let's keep things simple here.
 
-Roughly speaking, $2BC + B^2$ is the number of elements to be held in cache at any given time, plus some extra space based on the granularity of the cache lines.
+In this framework, $2BC + B^2$ is the number of elements to be held in cache at any given time, plus some extra space based on the granularity of the cache lines.
 For a given cache size, a larger $B$ will improve cache re-use but increase the overhead from loop restarts due to a lower $C$.
-A larger $B$ also increases memory usage as more dimension elements that need to be realized by **tatami**.
+A larger $B$ also increases memory usage as more dimension elements need to be realized by **tatami**;
+and might put some more pressure on higher cache levels if the cache line sizes are different, 
+though x86 seems to use 64 bytes for [all levels of the cache hierarchy](https://stackoverflow.com/questions/23024574/how-much-data-is-loaded-in-to-the-l2-and-l3-caches).
 
 Some research suggests that we can expect to have at least 32 kb of L1 cache per core on modern Intel, AMD and Apple ARM processors.
 If we're working with double-precision types, requiring $BC = 1024$ and enforcing $B \leq C$ will use 16-24 kb, which should easily fit into L1.
@@ -91,7 +123,9 @@ We could of course be more exact but it is better than $B$ and $C be multiples o
 as this provides a chance to exploit existing data alignment and vectorization. 
 Indeed, blocking can be combined with multiple accumulators, in which case $C$ should be a multiple of the number of accumulators to avoid entry into the epilogue loop.
 
-### Sparse matrices
+## Blocking with sparse matrices
+
+### Challenges
 
 If either of the input matrices is sparse (following the usual compressed sparse format from `tatami::SparseRange`), blocking is much more difficult.
 It is most efficient to iterate over the structural non-zeros but the distribution of structural non-zeros is not predictable. 
@@ -110,6 +144,25 @@ and if there is no similarity between those positions across sparse rows/columns
 Different RHS rows/columns will also have different number of structural non-zeros,
 so towards the end of each row/column, we'd be wasting time by looping over on rows/columns that have no more non-zeros.
 
+### Limited blocking
+
 We can avoid these problems by only considering one sparse row/column at a time in our blocking schemes.
 This reduces the potential for cache re-use as we need to reload parts of the accompanying dense matrix for each sparse row/column, but so be it.
-The exact scheme will depend on the layout, e.g., we could use a block of $C$ non-zeros from a single row/column or a $B$-by-$C$ block of the accompanying dense matrix.
+
+To illustrate, Let us consider the most common case of a multiplication involving dense-sparse dot products,
+i.e., the product of a dense row-major LHS matrix with a sparse column-major RHS matrix. 
+For each RHS column, we consider a block of $C$ structural non-zeros.
+We load in a block of $B$ LHS rows and we compute the partial dot product of those $C$ non-zeros with each LHS row.
+We repeat the calculation with the next block of $C$ non-zeros until the entire RHS column is processed, then we move onto the next RHS column.
+Once all RHS columns are processed, we consider the next block of $B$ LHS rows.
+The idea is to only reload each block of $C$ non-zeros per $B$ LHS rows rather than for each LHS row.
+
+The actual cache usage of this scheme is tricky to calculate.
+In theory, the cache would hold $C$ non-zero values, $C$ non-zero indices, $B$ partial dot products, and at least $C$ values from one of the LHS rows.
+If cache eviction uses an LRU policy, we will evict the used part of each LHS row while keeping the $C$ non-zeros in memory for re-use with the next LHS row;
+thus, we won't need to cache parts from all $B$ rows at once, given that each part will only be used once for the current block of $C$ non-zeros.
+However, as the $C$ LHS values might be non-contiguous, the actual cache usage of the $C$ LHS values will be higher than $C$ due to the granularity of cache lines.
+If we assume double-precision data, 64-byte cache lines and one "useful" LHS value per cache line, the actual LHS usage might be up to $8C$, bringing us up to a total of $10C + B$.
+So, setting $C = 256$ would fill the cache with a rough upper bound of ~2560 double-precision values, which should still fit comfortably in a >32kb L1 cache.
+
+The same logic also applies to multiplication of a sparse row-major LHS matrix with a dense column-major RHS matrix.

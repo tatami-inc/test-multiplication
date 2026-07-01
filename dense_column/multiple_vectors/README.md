@@ -1,4 +1,4 @@
-# Dense column-major product with multiple vectors
+# Dense column-major LHS, multiple vectors RHS
 
 ## Strategies
 
@@ -7,23 +7,20 @@ We will be loading columns on demand via the **tatami** interface, so the full m
 
 ### Naive 
 
-The naive approach involves computing the outer product for each column of the LHS matrix and each of the multiple RHS vectors,
-and then adding them to the output matrix.
-Specifically, we iterate across the $i$-th elements of all RHS columns and perform a vector multiply-add for the $i$-th LHS column with the $i$-th output column.
+For each column $i$ of the LHS matrix, we compute the outer product with the $i$-th element of each of multiple RHS vectors.
+This is done via a vector multiply-add to the output vector corresponding to each RHS vector.
 We repeat this for all $i$ until all columns of the LHS matrix are traversed.
 
 ### Blocking 
 
-The blocked approach computes outer products from small blocks of the input matrices.
-We consider $C$-by-$B$ blocks of the LHS matrix, i.e., $C$ rows and $B$ columns.
+We consider $C$-by-$B$ LHS and output submatrices and a $B$-by-$B$ RHS submatrix.
+For each part of the LHS column in this block, we compute the outer product by performing a vector multiply-add to an output column using the corresponding RHS scaling factor.
 Once all outer products are computed for one block, we move onto the next $C$ rows of the LHS matrix, to take advantage of fast contiguous access along the LHS columns;
 once those are exhausted, we move onto the next $B$ columns.
-The idea is to keep data into cache for faster re-use, e.g., whenc omputing outer product from the same part of a LHS column against multiple RHS row elements.
 
-We test a range of different values for the $B$ given a fixed value for $BC = 1024$, i.e., a thousand elements in the cache at once.
-(The actual number of elements in the cache is actually $2BC$, as we hold a block from each of the LHS and RHS.)
-Even for 8-byte types like `double`, this should easily fit into a modern L1 cache. 
-We keep $B$ relatively small so that we don't have to keep a large block of columns in memory, while $C$ is relatively large to reduce overhead of the vectorizable loops.
+The hope is that these submatrices are small enough to keep in cache for fast access.
+We test a range of different values for the $B$ given a fixed value for $BC = 1024$. 
+Check out [`general/README.md`](../../general/README.md) for more details.
 
 ## Instructions
 
