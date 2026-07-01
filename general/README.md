@@ -144,9 +144,9 @@ and if there is no similarity between those positions across sparse rows/columns
 Different RHS rows/columns will also have different number of structural non-zeros,
 so towards the end of each row/column, we'd be wasting time by looping over on rows/columns that have no more non-zeros.
 
-### Limited blocking
+### Blocking along non-zeros 
 
-We can avoid these problems by only considering one sparse row/column at a time in our blocking schemes.
+We can avoid the problems described above by only considering one sparse row/column at a time in our blocking schemes.
 This reduces the potential for cache re-use as we need to reload parts of the accompanying dense matrix for each sparse row/column, but so be it.
 
 To illustrate, Let us consider the most common case of a multiplication involving dense-sparse dot products,
@@ -166,3 +166,14 @@ If we assume double-precision data, 64-byte cache lines and one "useful" LHS val
 So, setting $C = 256$ would fill the cache with a rough upper bound of ~2560 double-precision values, which should still fit comfortably in a >32kb L1 cache.
 
 The same logic also applies to multiplication of a sparse row-major LHS matrix with a dense column-major RHS matrix.
+
+### Blocking to cache the dense vector
+
+Another approach to blocking is based on the observation that the most expensive part of sparse matrix multiplication is the random accesses of the accompanying dense vector.
+Each access might require a fetch from main memory if the position of the structural non-zero belongs in a new cache line.
+To avoid this, we operate a block of $B$ sparse vectors with a single dense vector.
+For the one dense vector, we loop over the $B$ sparse vectors and process each sparse vector in its entirety.
+For example, we might a block of LHS sparse rows and compute the dot product for each sparse row with a single dense RHS column.
+Our assumption is that each sparse vector in the block has its structural non-zeros within a cache line of the previous sparse vectors,
+such that we can re-use parts of the lone dense vector that have already been cached.
+We also assume that the cache hierarchy is large enough to hold the entire dense vector, or at least the parts corresponding to the sparse vector's structural non-zeros.

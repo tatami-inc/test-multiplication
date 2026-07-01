@@ -26,24 +26,18 @@ void blocked_mult(
     std::vector<std::vector<FLOAT> >& product,
     const std::size_t block_size 
 ) {
-    const std::size_t line_size = 1024 / block_size;
-    for (std::size_t r = 0; r < NR; ++r) {
-        const auto& mval = mat_value[r];
-        const auto& midx = mat_index[r];
-        const std::size_t nnz = mval.size();
-        std::size_t h = 0;
-        while (h < NRHS) {
-            const std::size_t hend = h + std::min(NRHS - h, block_size);
-            std::size_t x = 0;
-            while (x < nnz) {
-                const std::size_t xnum = std::min(nnz - x, line_size);
-                for (std::size_t hcopy = h; hcopy < hend; ++hcopy) {
-                    product[hcopy][r] = dense_sparse_dot_product<num_acc_>(xnum, mval.begin() + x, midx.begin() + x, rhs[hcopy], product[hcopy][r]);
-                }
-                x += xnum;
+    std::size_t r = 0;
+    while (r < NR) {
+        const std::size_t rend = r + std::min(NR - r, block_size);
+        for (std::size_t h = 0; h < NRHS; ++h) {
+            const auto& rcol = rhs[h];
+            for (std::size_t rcopy = r; rcopy < rend; ++rcopy) {
+                const auto& mval = mat_value[rcopy];
+                const auto& midx = mat_index[rcopy];
+                product[h][rcopy] = dense_sparse_dot_product<num_acc_>(mat_value[rcopy], mat_index[rcopy], rcol);
             }
-            h = hend;
         }
+        r = rend;
     }
 }
 

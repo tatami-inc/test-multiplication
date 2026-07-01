@@ -30,7 +30,7 @@ There's not much that can be done here as the output's layout does not align wit
 
 ### Blocking column-major RHS
 
-We'll use the scheme described in the "Limited blocking" section in [`general/README.md`](../../general/README.md). 
+We'll use the scheme described in the "Blocking along non-zeros" section in [`general/README.md`](../../general/README.md). 
 For each sparse RHS column, we consider a block of $C$ structural non-zeros.
 We load in a block of $B$ LHS rows and we compute the partial dot product of the $C$ non-zeros with each of those rows.
 We repeat the calculation with the next block of $C$ non-zeros until the entire RHS column is processed, then we move onto the next RHS column.
@@ -51,10 +51,17 @@ Once all RHS rows are processed, we consider the next block of $B$ rows.
 
 The idea is to only reload this block of $C$ non-zeros per $B$ LHS rows rather than for each LHS row.
 Again, we try multiple values of $B$ with the constraint that $BC = 256$.
-Check out the "Limited blocking" section in [`general/README.md`](../../general/README.md) for more details;
+Check out the "Blocking along non-zeros" section in [`general/README.md`](../../general/README.md) for more details;
 though the layout is not exactly the same, we are still dealing with accesses to a dense matrix (output instead of LHS).
 
 For a valid comparison with the other strategies, we use 4 accumulators to compute the dot product, given that this is (near-)optimal in the non-blocked strategies.
+
+### More comments on blocking
+
+The "Blocking to cache the dense vector" section in [`general/README.md`](../../general/README.md) suggests arranging the loops so that the dense vector is kept in cache. 
+However, there is no need to explicitly do so here.
+The naive approaches will automatically process multiple sparse vectors for a single dense vector,
+be it the LHS row (for column-major RHS) or the output row (for row-major RHS).
 
 ## Instructions
 

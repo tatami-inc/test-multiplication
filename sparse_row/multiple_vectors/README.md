@@ -17,14 +17,11 @@ It also provides some opportunities for auto-vectorization of the sum.
 
 ### Blocking
 
-We'll use the scheme described in the "Limited blocking" section in [`general/README.md`](../../general/README.md). 
-For each sparse LHS row, we consider a block of $C$ structural non-zeros and a block of $B$ RHS columns.
-We compute the partial dot product of the $C$ non-zeros with each of the RHS columns.
-We repeat the calculation with the next block of $C$ non-zeros until the entire LHS row is processed, then we move onto the next $B$ RHS columns.
-Once all RHS columns are processed, we consider the next block of $B$ rows.
-
-The idea is to only reload each block of $C$ non-zeros per $B$ LHS rows rather than for each LHS row.
-We try multiple values of $B$ with a fixed $C = 256$.
+We follow the recommendations mentioned in the "Blocking to cache the dense vector" in [`general/README.md`](../../general/README.md).
+First, we load in a block of $B$ sparse LHS rows.
+For each RHS vector, we compute the dot product with each of the LHS rows in the block.
+This is repeated for the next block of $B$ LHS rows until the entire LHS matrix is traversed.
+The idea is to keep as much of each RHS vector in the cache as possible.
 
 ### Blocking with accumulators
 
@@ -49,109 +46,108 @@ All timings below are obtained on an Intel i7-8850H.
 ```console
 $ ./build/test -r 1000 -c 1000 -H 1000
 Results for 1000 x 1000 x 1000
-naive                                             : 0.23637 ± 0.000614496
-2 accumulators                                    : 0.241283 ± 0.000466012
-4 accumulators                                    : 0.218738 ± 0.000586264
-8 accumulators                                    : 0.234722 ± 0.000645088
-blocked 4                                         : 0.242075 ± 0.00287805
-blocked 8                                         : 0.242098 ± 0.000513339
-blocked 16                                        : 0.25107 ± 0.000769248
-blocked 32                                        : 0.261351 ± 0.00108893
-blocked 4, multiple accumulators                  : 0.224882 ± 0.000630429
-blocked 8, multiple accumulators                  : 0.224451 ± 0.000582492
-blocked 16, multiple accumulators                 : 0.241541 ± 0.000589569
-blocked 32, multiple accumulators                 : 0.261741 ± 0.000832864
+naive                                             : 0.239534 ± 0.0112955
+2 accumulators                                    : 0.242318 ± 0.00665925
+4 accumulators                                    : 0.212299 ± 0.00589962
+8 accumulators                                    : 0.232038 ± 0.00691499
+blocked 4                                         : 0.150769 ± 0.00388108
+blocked 8                                         : 0.12777 ± 0.00514117
+blocked 16                                        : 0.111567 ± 0.00291508
+blocked 32                                        : 0.103708 ± 0.00195957
+blocked 4, multiple accumulators                  : 0.118643 ± 0.00326225
+blocked 8, multiple accumulators                  : 0.0921437 ± 0.00534881
+blocked 16, multiple accumulators                 : 0.07058 ± 0.00218664
+blocked 32, multiple accumulators                 : 0.056724 ± 0.000210763
 
 $ ./build/test -r 1000 -c 10000 -H 100
 Results for 1000 x 10000 x 100
-naive                                             : 0.231306 ± 0.00144139
-2 accumulators                                    : 0.234472 ± 0.000600344
-4 accumulators                                    : 0.208238 ± 0.000495223
-8 accumulators                                    : 0.226078 ± 0.00056013
-blocked 4                                         : 0.230757 ± 0.00302533
-blocked 8                                         : 0.235452 ± 0.000593333
-blocked 16                                        : 0.239243 ± 0.000556593
-blocked 32                                        : 0.249662 ± 0.00177232
-blocked 4, multiple accumulators                  : 0.212285 ± 0.00171598
-blocked 8, multiple accumulators                  : 0.217252 ± 0.000436678
-blocked 16, multiple accumulators                 : 0.226287 ± 0.000508018
-blocked 32, multiple accumulators                 : 0.247716 ± 0.00063571
+naive                                             : 0.229367 ± 0.00360619
+2 accumulators                                    : 0.252649 ± 0.00599014
+4 accumulators                                    : 0.219583 ± 0.00516234
+8 accumulators                                    : 0.240714 ± 0.00737905
+blocked 4                                         : 0.150848 ± 0.00289895
+blocked 8                                         : 0.134204 ± 0.00239428
+blocked 16                                        : 0.12329 ± 0.00165561
+blocked 32                                        : 0.114943 ± 0.00106567
+blocked 4, multiple accumulators                  : 0.130564 ± 0.00348676
+blocked 8, multiple accumulators                  : 0.104549 ± 0.00277402
+blocked 16, multiple accumulators                 : 0.0845042 ± 0.00223196
+blocked 32, multiple accumulators                 : 0.0743997 ± 0.00170618
 
 $ ./build/test -r 1000 -c 100 -H 10000
 Results for 1000 x 100 x 10000
-naive                                             : 0.310007 ± 0.00219874
-2 accumulators                                    : 0.322858 ± 0.00106521
-4 accumulators                                    : 0.33649 ± 0.000769059
-8 accumulators                                    : 0.30889 ± 0.00331351
-blocked 4                                         : 0.358821 ± 0.00370177
-blocked 8                                         : 0.354294 ± 0.000694325
-blocked 16                                        : 0.350167 ± 0.00245437
-blocked 32                                        : 0.349114 ± 0.00061804
-blocked 4, multiple accumulators                  : 0.403454 ± 0.000868485
-blocked 8, multiple accumulators                  : 0.388477 ± 0.00226098
-blocked 16, multiple accumulators                 : 0.385531 ± 0.000616976
-blocked 32, multiple accumulators                 : 0.37896 ± 0.0029434
+naive                                             : 0.306568 ± 0.0061944
+2 accumulators                                    : 0.321876 ± 0.00577633
+4 accumulators                                    : 0.328871 ± 0.00507749
+8 accumulators                                    : 0.313548 ± 0.00656646
+blocked 4                                         : 0.155289 ± 0.00365538
+blocked 8                                         : 0.112967 ± 0.00138985
+blocked 16                                        : 0.0921518 ± 0.00154091
+blocked 32                                        : 0.0776362 ± 0.00152533
+blocked 4, multiple accumulators                  : 0.179185 ± 0.00273608
+blocked 8, multiple accumulators                  : 0.128477 ± 0.00250349
+blocked 16, multiple accumulators                 : 0.105029 ± 0.00158726
+blocked 32, multiple accumulators                 : 0.0915734 ± 0.00127477
 
 $ ./build/test -r 10000 -c 1000 -H 100
 Results for 10000 x 1000 x 100
-naive                                             : 0.0996442 ± 0.000221464
-2 accumulators                                    : 0.0972717 ± 0.000165983
-4 accumulators                                    : 0.0886371 ± 0.000285857
-8 accumulators                                    : 0.0947561 ± 0.000176564
-blocked 4                                         : 0.1101 ± 0.000578658
-blocked 8                                         : 0.109172 ± 0.000192396
-blocked 16                                        : 0.105653 ± 0.000204968
-blocked 32                                        : 0.105195 ± 0.000262573
-blocked 4, multiple accumulators                  : 0.0961397 ± 0.000114273
-blocked 8, multiple accumulators                  : 0.0966584 ± 0.000211232
-blocked 16, multiple accumulators                 : 0.0986054 ± 0.000222758
-blocked 32, multiple accumulators                 : 0.105337 ± 0.000143673
+naive                                             : 0.0977307 ± 0.000121769
+2 accumulators                                    : 0.0955005 ± 0.000191911
+4 accumulators                                    : 0.0870518 ± 0.000159248
+8 accumulators                                    : 0.0933729 ± 0.000201395
+blocked 4                                         : 0.0905084 ± 0.00023115
+blocked 8                                         : 0.0885866 ± 0.000139731
+blocked 16                                        : 0.0875149 ± 0.000123734
+blocked 32                                        : 0.0878445 ± 0.000433951
+blocked 4, multiple accumulators                  : 0.0578517 ± 6.52973e-05
+blocked 8, multiple accumulators                  : 0.0487341 ± 6.65614e-05
+blocked 16, multiple accumulators                 : 0.0448579 ± 0.000112011
+blocked 32, multiple accumulators                 : 0.0435579 ± 6.76307e-05
 
 $ ./build/test -r 10000 -c 100 -H 1000
 Results for 10000 x 100 x 1000
-naive                                             : 0.118089 ± 0.000370454
-2 accumulators                                    : 0.122102 ± 0.00016739
-4 accumulators                                    : 0.132069 ± 0.000345597
-8 accumulators                                    : 0.128264 ± 0.000462715
-blocked 4                                         : 0.186407 ± 0.00128172
-blocked 8                                         : 0.181508 ± 0.000433705
-blocked 16                                        : 0.179979 ± 0.000760631
-blocked 32                                        : 0.178047 ± 0.000637205
-blocked 4, multiple accumulators                  : 0.207981 ± 0.000384889
-blocked 8, multiple accumulators                  : 0.201317 ± 0.000833191
-blocked 16, multiple accumulators                 : 0.197726 ± 0.000592045
-blocked 32, multiple accumulators                 : 0.198081 ± 0.000492861
+naive                                             : 0.126518 ± 0.000783699
+2 accumulators                                    : 0.132081 ± 0.000565721
+4 accumulators                                    : 0.142351 ± 0.00070075
+8 accumulators                                    : 0.136792 ± 0.000680093
+blocked 4                                         : 0.083104 ± 0.000872533
+blocked 8                                         : 0.0740875 ± 0.000784814
+blocked 16                                        : 0.0681843 ± 0.000702151
+blocked 32                                        : 0.0671435 ± 0.00066624
+blocked 4, multiple accumulators                  : 0.104817 ± 0.00096392
+blocked 8, multiple accumulators                  : 0.0903113 ± 0.000925393
+blocked 16, multiple accumulators                 : 0.0837639 ± 0.000842475
+blocked 32, multiple accumulators                 : 0.0819698 ± 0.00109471
 
 $ ./build/test -r 100 -c 10000 -H 1000
 Results for 100 x 10000 x 1000
-naive                                             : 0.451036 ± 0.000599061
-2 accumulators                                    : 0.459105 ± 0.000479968
-4 accumulators                                    : 0.443242 ± 0.000570188
-8 accumulators                                    : 0.45263 ± 0.000475962
-blocked 4                                         : 0.450426 ± 0.00245717
-blocked 8                                         : 0.456397 ± 0.000384654
-blocked 16                                        : 0.463351 ± 0.000269874
-blocked 32                                        : 0.475819 ± 0.00149735
-blocked 4, multiple accumulators                  : 0.447573 ± 0.000247909
-blocked 8, multiple accumulators                  : 0.450489 ± 0.000693172
-blocked 16, multiple accumulators                 : 0.460471 ± 0.00038784
-blocked 32, multiple accumulators                 : 0.476475 ± 0.000363314
+naive                                             : 0.451574 ± 0.000357918
+2 accumulators                                    : 0.459364 ± 0.000464554
+4 accumulators                                    : 0.4443 ± 0.000665183
+8 accumulators                                    : 0.454165 ± 0.00048221
+blocked 4                                         : 0.223284 ± 0.00233943
+blocked 8                                         : 0.172737 ± 0.000279924
+blocked 16                                        : 0.142522 ± 0.000265937
+blocked 32                                        : 0.125646 ± 0.000322397
+blocked 4, multiple accumulators                  : 0.206332 ± 0.000254734
+blocked 8, multiple accumulators                  : 0.145171 ± 0.000358425
+blocked 16, multiple accumulators                 : 0.110232 ± 0.000206634
+blocked 32, multiple accumulators                 : 0.090316 ± 0.000126692
 
 $ ./build/test -r 100 -c 1000 -H 10000
 Results for 100 x 1000 x 10000
-naive                                             : 0.464672 ± 0.00253977
-2 accumulators                                    : 0.473904 ± 0.00138776
-4 accumulators                                    : 0.476267 ± 0.0154202
-8 accumulators                                    : 0.488158 ± 0.010837
-blocked 4                                         : 0.488684 ± 0.00540755
-blocked 8                                         : 0.510444 ± 0.0126268
-blocked 16                                        : 0.501943 ± 0.00489827
-blocked 32                                        : 0.529142 ± 0.0155281
-blocked 4, multiple accumulators                  : 0.475453 ± 0.00262923
-blocked 8, multiple accumulators                  : 0.478854 ± 0.00437168
-blocked 16, multiple accumulators                 : 0.50659 ± 0.0136623
-blocked 32, multiple accumulators                 : 0.519172 ± 0.00928673
-
+naive                                             : 0.499198 ± 0.0254992
+2 accumulators                                    : 0.522714 ± 0.0389661
+4 accumulators                                    : 0.46793 ± 0.00351446
+8 accumulators                                    : 0.488409 ± 0.00523938
+blocked 4                                         : 0.218625 ± 0.00328404
+blocked 8                                         : 0.168208 ± 0.00306306
+blocked 16                                        : 0.131736 ± 0.00206854
+blocked 32                                        : 0.114602 ± 0.00234414
+blocked 4, multiple accumulators                  : 0.208699 ± 0.00437172
+blocked 8, multiple accumulators                  : 0.136617 ± 0.00388331
+blocked 16, multiple accumulators                 : 0.0976068 ± 0.00211879
+blocked 32, multiple accumulators                 : 0.0732898 ± 0.00211574
 ```
 
 ## Single-precision results
@@ -161,108 +157,108 @@ Again, but with single-precision floats.
 ```console
 $ ./build/test_float -r 1000 -c 1000 -H 1000
 Results for 1000 x 1000 x 1000
-naive                                             : 0.113255 ± 0.00245019
-2 accumulators                                    : 0.0965071 ± 0.00192287
-4 accumulators                                    : 0.0862503 ± 0.0011995
-8 accumulators                                    : 0.10011 ± 0.00306974
-blocked 4                                         : 0.120258 ± 0.00134813
-blocked 8                                         : 0.126394 ± 0.00343799
-blocked 16                                        : 0.115542 ± 0.00197923
-blocked 32                                        : 0.107058 ± 0.000617219
-blocked 4, multiple accumulators                  : 0.09212 ± 0.00201814
-blocked 8, multiple accumulators                  : 0.092195 ± 0.00276769
-blocked 16, multiple accumulators                 : 0.0946609 ± 0.00105223
-blocked 32, multiple accumulators                 : 0.101811 ± 0.00212483
+naive                                             : 0.121776 ± 0.0020113
+2 accumulators                                    : 0.110728 ± 0.00357415
+4 accumulators                                    : 0.106288 ± 0.00628164
+8 accumulators                                    : 0.111073 ± 0.00278971
+blocked 4                                         : 0.10661 ± 0.00627095
+blocked 8                                         : 0.0999482 ± 0.00234612
+blocked 16                                        : 0.0940516 ± 0.00135539
+blocked 32                                        : 0.0922287 ± 0.00118436
+blocked 4, multiple accumulators                  : 0.0608438 ± 0.00173353
+blocked 8, multiple accumulators                  : 0.0517113 ± 0.00159384
+blocked 16, multiple accumulators                 : 0.0446547 ± 0.000392405
+blocked 32, multiple accumulators                 : 0.0417533 ± 0.000172627
 
 $ ./build/test_float -r 1000 -c 10000 -H 100
 Results for 1000 x 10000 x 100
-naive                                             : 0.11314 ± 0.00328362
-2 accumulators                                    : 0.0833488 ± 0.00148131
-4 accumulators                                    : 0.0741359 ± 0.00114331
-8 accumulators                                    : 0.0876531 ± 0.00235068
-blocked 4                                         : 0.110229 ± 0.00333482
-blocked 8                                         : 0.106343 ± 0.00192468
-blocked 16                                        : 0.102758 ± 0.00283745
-blocked 32                                        : 0.0976403 ± 0.00165574
-blocked 4, multiple accumulators                  : 0.0758526 ± 0.00161722
-blocked 8, multiple accumulators                  : 0.0771823 ± 0.00252098
-blocked 16, multiple accumulators                 : 0.0771074 ± 0.000999707
-blocked 32, multiple accumulators                 : 0.0838433 ± 0.00271613
+naive                                             : 0.108703 ± 0.00238643
+2 accumulators                                    : 0.0806034 ± 0.0015088
+4 accumulators                                    : 0.0746706 ± 0.00236114
+8 accumulators                                    : 0.0927483 ± 0.00812164
+blocked 4                                         : 0.106986 ± 0.00231332
+blocked 8                                         : 0.114939 ± 0.00467948
+blocked 16                                        : 0.104701 ± 0.00111056
+blocked 32                                        : 0.102177 ± 0.000971926
+blocked 4, multiple accumulators                  : 0.0619964 ± 0.00323678
+blocked 8, multiple accumulators                  : 0.0612671 ± 0.0018646
+blocked 16, multiple accumulators                 : 0.0608381 ± 0.00262758
+blocked 32, multiple accumulators                 : 0.0556463 ± 0.00133346
 
 $ ./build/test_float -r 1000 -c 100 -H 10000
 Results for 1000 x 100 x 10000
-naive                                             : 0.151017 ± 0.00765341
-2 accumulators                                    : 0.147772 ± 0.00621233
-4 accumulators                                    : 0.170211 ± 0.0110143
-8 accumulators                                    : 0.163039 ± 0.00863322
-blocked 4                                         : 0.200259 ± 0.0126188
-blocked 8                                         : 0.206509 ± 0.0139646
-blocked 16                                        : 0.204192 ± 0.0126621
-blocked 32                                        : 0.193379 ± 0.0123789
-blocked 4, multiple accumulators                  : 0.206781 ± 0.0116979
-blocked 8, multiple accumulators                  : 0.217248 ± 0.0140699
-blocked 16, multiple accumulators                 : 0.210436 ± 0.0144416
-blocked 32, multiple accumulators                 : 0.205276 ± 0.0120298
+naive                                             : 0.128394 ± 0.00148198
+2 accumulators                                    : 0.128729 ± 0.00460693
+4 accumulators                                    : 0.129344 ± 0.00287177
+8 accumulators                                    : 0.145972 ± 0.00532839
+blocked 4                                         : 0.0911002 ± 0.00433142
+blocked 8                                         : 0.080359 ± 0.00216076
+blocked 16                                        : 0.0710156 ± 0.00106145
+blocked 32                                        : 0.0657845 ± 0.000768431
+blocked 4, multiple accumulators                  : 0.100082 ± 0.0055679
+blocked 8, multiple accumulators                  : 0.0851881 ± 0.00275537
+blocked 16, multiple accumulators                 : 0.0784358 ± 0.00257811
+blocked 32, multiple accumulators                 : 0.0700711 ± 0.000548125
 
 $ ./build/test_float -r 10000 -c 1000 -H 100
 Results for 10000 x 1000 x 100
-naive                                             : 0.0907883 ± 0.000285629
-2 accumulators                                    : 0.0683808 ± 0.000297593
-4 accumulators                                    : 0.0599125 ± 9.07062e-05
-8 accumulators                                    : 0.0723509 ± 0.000269506
-blocked 4                                         : 0.10073 ± 0.000432075
-blocked 8                                         : 0.0998946 ± 0.000139762
-blocked 16                                        : 0.0915959 ± 0.000233415
-blocked 32                                        : 0.0874179 ± 0.000245697
-blocked 4, multiple accumulators                  : 0.0648297 ± 0.000333561
-blocked 8, multiple accumulators                  : 0.0646975 ± 0.000169349
-blocked 16, multiple accumulators                 : 0.069478 ± 0.000282345
-blocked 32, multiple accumulators                 : 0.0742206 ± 0.000106735
+naive                                             : 0.0907024 ± 0.000231573
+2 accumulators                                    : 0.0679661 ± 0.000264067
+4 accumulators                                    : 0.0596752 ± 0.000213813
+8 accumulators                                    : 0.0722238 ± 0.000298685
+blocked 4                                         : 0.0904111 ± 0.000584034
+blocked 8                                         : 0.0894397 ± 0.000490403
+blocked 16                                        : 0.0881504 ± 0.000246554
+blocked 32                                        : 0.0888669 ± 0.000370406
+blocked 4, multiple accumulators                  : 0.0438598 ± 0.000309629
+blocked 8, multiple accumulators                  : 0.0396818 ± 0.000303003
+blocked 16, multiple accumulators                 : 0.0379876 ± 0.000322006
+blocked 32, multiple accumulators                 : 0.0372349 ± 0.000102376
 
 $ ./build/test_float -r 10000 -c 100 -H 1000
 Results for 10000 x 100 x 1000
-naive                                             : 0.0979337 ± 0.000655536
-2 accumulators                                    : 0.0953958 ± 0.000689904
-4 accumulators                                    : 0.100197 ± 0.000762258
-8 accumulators                                    : 0.106707 ± 0.000579663
-blocked 4                                         : 0.146073 ± 0.000767754
-blocked 8                                         : 0.141515 ± 0.00055999
-blocked 16                                        : 0.138871 ± 0.000687162
-blocked 32                                        : 0.13709 ± 0.000528009
-blocked 4, multiple accumulators                  : 0.152443 ± 0.000599039
-blocked 8, multiple accumulators                  : 0.14419 ± 0.00048797
-blocked 16, multiple accumulators                 : 0.141413 ± 0.000538184
-blocked 32, multiple accumulators                 : 0.140452 ± 0.000505281
+naive                                             : 0.0921966 ± 0.000305964
+2 accumulators                                    : 0.0911264 ± 0.000535258
+4 accumulators                                    : 0.0963545 ± 0.000218466
+8 accumulators                                    : 0.103585 ± 0.000466893
+blocked 4                                         : 0.0714229 ± 0.000450231
+blocked 8                                         : 0.0650551 ± 0.000222925
+blocked 16                                        : 0.062963 ± 0.000304407
+blocked 32                                        : 0.0623845 ± 0.00030112
+blocked 4, multiple accumulators                  : 0.0796034 ± 0.000287016
+blocked 8, multiple accumulators                  : 0.0713973 ± 0.000504899
+blocked 16, multiple accumulators                 : 0.0675427 ± 0.000277836
+blocked 32, multiple accumulators                 : 0.0653929 ± 0.000119211
 
 $ ./build/test_float -r 100 -c 10000 -H 1000
 Results for 100 x 10000 x 1000
-naive                                             : 0.241895 ± 0.00018675
-2 accumulators                                    : 0.240363 ± 0.000107915
-4 accumulators                                    : 0.23149 ± 0.000119007
-8 accumulators                                    : 0.242545 ± 0.000596584
-blocked 4                                         : 0.244143 ± 0.00152564
-blocked 8                                         : 0.24965 ± 0.000101284
-blocked 16                                        : 0.247069 ± 0.000160047
-blocked 32                                        : 0.291034 ± 9.12188e-05
-blocked 4, multiple accumulators                  : 0.235246 ± 0.000134351
-blocked 8, multiple accumulators                  : 0.240964 ± 9.53703e-05
-blocked 16, multiple accumulators                 : 0.242352 ± 0.000414107
-blocked 32, multiple accumulators                 : 0.280857 ± 0.00014266
+naive                                             : 0.255637 ± 0.00498401
+2 accumulators                                    : 0.260414 ± 0.00599941
+4 accumulators                                    : 0.246663 ± 0.00448366
+8 accumulators                                    : 0.254853 ± 0.00701283
+blocked 4                                         : 0.144581 ± 0.00142047
+blocked 8                                         : 0.129018 ± 0.00295314
+blocked 16                                        : 0.118068 ± 0.00286128
+blocked 32                                        : 0.108598 ± 0.000597594
+blocked 4, multiple accumulators                  : 0.105714 ± 0.000498539
+blocked 8, multiple accumulators                  : 0.0868403 ± 0.00355302
+blocked 16, multiple accumulators                 : 0.0695696 ± 0.0011526
+blocked 32, multiple accumulators                 : 0.0609156 ± 0.000756398
 
 $ ./build/test_float -r 100 -c 1000 -H 10000
 Results for 100 x 1000 x 10000
-naive                                             : 0.272258 ± 0.0159429
-2 accumulators                                    : 0.271219 ± 0.0155422
-4 accumulators                                    : 0.251734 ± 0.00493011
-8 accumulators                                    : 0.28693 ± 0.0202251
-blocked 4                                         : 0.263908 ± 0.00274331
-blocked 8                                         : 0.268552 ± 0.00282942
-blocked 16                                        : 0.315856 ± 0.0194087
-blocked 32                                        : 0.310676 ± 0.00282507
-blocked 4, multiple accumulators                  : 0.257736 ± 0.00225431
-blocked 8, multiple accumulators                  : 0.25846 ± 0.00249919
-blocked 16, multiple accumulators                 : 0.287063 ± 0.0026964
-blocked 32, multiple accumulators                 : 0.305351 ± 0.00379457
+naive                                             : 0.268343 ± 0.00334741
+2 accumulators                                    : 0.292079 ± 0.0210781
+4 accumulators                                    : 0.268486 ± 0.00618299
+8 accumulators                                    : 0.26203 ± 0.00522957
+blocked 4                                         : 0.153899 ± 0.00753411
+blocked 8                                         : 0.12095 ± 0.00317249
+blocked 16                                        : 0.105397 ± 0.00069364
+blocked 32                                        : 0.100899 ± 0.00219659
+blocked 4, multiple accumulators                  : 0.113661 ± 0.00421226
+blocked 8, multiple accumulators                  : 0.0803986 ± 0.00191894
+blocked 16, multiple accumulators                 : 0.0646812 ± 0.00202839
+blocked 32, multiple accumulators                 : 0.0535294 ± 0.00147812
 ```
 
 ## Conclusion
