@@ -47,7 +47,7 @@ void blocked_mult(
 }
 
 int main(int argc, char ** argv) {
-    CLI::App app{"Dense column x single vector performance tests"};
+    CLI::App app{"Timings for dense column-major LHS, single vector RHS"};
     std::size_t NR;
     app.add_option("-r,--row", NR, "Number of matrix rows")->default_val(10000);
     std::size_t NC;
@@ -96,28 +96,28 @@ int main(int argc, char ** argv) {
 
     // Blocked multiplication.
     std::vector<FLOAT> blocked_4(NR);
-    names.push_back("blocked 4");
+    names.push_back("blocked (B = 4)");
     funs.emplace_back([&]() -> FLOAT {
         blocked_mult(NR, NC, matrix, rhs, blocked_4, 4);
         return blocked_4.front() + blocked_4.back();
     });
 
     std::vector<FLOAT> blocked_8(NR);
-    names.push_back("blocked 8");
+    names.push_back("blocked (B = 8)");
     funs.emplace_back([&]() -> FLOAT {
         blocked_mult(NR, NC, matrix, rhs, blocked_8, 8);
         return blocked_8.front() + blocked_8.back();
     });
 
     std::vector<FLOAT> blocked_16(NR);
-    names.push_back("blocked 16");
+    names.push_back("blocked (B = 16)");
     funs.emplace_back([&]() -> FLOAT {
         blocked_mult(NR, NC, matrix, rhs, blocked_16, 16);
         return blocked_16.front() + blocked_16.back();
     });
 
     std::vector<FLOAT> blocked_32(NR);
-    names.push_back("blocked 32");
+    names.push_back("blocked (B = 32)");
     funs.emplace_back([&]() -> FLOAT {
         blocked_mult(NR, NC, matrix, rhs, blocked_32, 32);
         return blocked_32.front() + blocked_32.back();

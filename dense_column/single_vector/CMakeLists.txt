@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.14)
 project(
     dcsv
     VERSION 1.0.0
-    DESCRIPTION "Dense column matrix, single vector"
+    DESCRIPTION "Dense column LHS, single vector RHS"
     LANGUAGES CXX
 )
 

@@ -55,7 +55,7 @@ void blocked_mult(
 }
 
 int main(int argc, char ** argv) {
-    CLI::App app{"Dense column matrix x multiple vectors performance tests"};
+    CLI::App app{"Timings for dense column-major LHS, multiple vectors RHS"};
     std::size_t NR;
     app.add_option("-r,--row", NR, "Number of matrix rows")->default_val(10000);
     std::size_t NC;
@@ -130,28 +130,28 @@ int main(int argc, char ** argv) {
         blocked_mult(NR, NC, matrix, NRHS, rhs, blocked_4, 4);
         return blocked_4.front().front() + blocked_4.front().back() + blocked_4.back().front() + blocked_4.back().back();
     });
-    names.push_back("blocked 4");
+    names.push_back("blocked (B = 4)");
 
     auto blocked_8 = preallocate_output();
     funs.emplace_back([&]() -> FLOAT {
         blocked_mult(NR, NC, matrix, NRHS, rhs, blocked_8, 8);
         return blocked_8.front().front() + blocked_8.front().back() + blocked_8.back().front() + blocked_8.back().back();
     });
-    names.push_back("blocked 8");
+    names.push_back("blocked (B = 8)");
 
     auto blocked_16 = preallocate_output();
     funs.emplace_back([&]() -> FLOAT {
         blocked_mult(NR, NC, matrix, NRHS, rhs, blocked_16, 16);
         return blocked_16.front().front() + blocked_16.front().back() + blocked_16.back().front() + blocked_16.back().back();
     });
-    names.push_back("blocked 16");
+    names.push_back("blocked (B = 16)");
 
     auto blocked_32 = preallocate_output();
     funs.emplace_back([&]() -> FLOAT {
         blocked_mult(NR, NC, matrix, NRHS, rhs, blocked_32, 32);
         return blocked_32.front().front() + blocked_32.front().back() + blocked_32.back().front() + blocked_32.back().back();
     });
-    names.push_back("blocked 32");
+    names.push_back("blocked (B = 32)");
 
     // Performing the iterations.
     eztimer::Options opt;
