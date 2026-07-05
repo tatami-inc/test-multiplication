@@ -147,9 +147,9 @@ so towards the end of each row/column, we'd be wasting time by looping over on r
 ### Blocking along non-zeros 
 
 We can avoid the problems described above by only considering one sparse row/column at a time in our blocking schemes.
-This reduces the potential for cache re-use as we need to reload parts of the accompanying dense matrix for each sparse row/column, but so be it.
+This reduces the potential for cache re-use as we need to reload parts of the accompanying dense matrix for each sparse row/column.
 
-To illustrate, Let us consider the most common case of a multiplication involving dense-sparse dot products,
+To illustrate, consider the most common case of a multiplication involving dense-sparse dot products,
 i.e., the product of a dense row-major LHS matrix with a sparse column-major RHS matrix. 
 For each RHS column, we consider a block of $C$ structural non-zeros.
 We load in a block of $B$ LHS rows and we compute the partial dot product of those $C$ non-zeros with each LHS row.
@@ -165,15 +165,30 @@ However, as the $C$ LHS values might be non-contiguous, the actual cache usage o
 If we assume double-precision data, 64-byte cache lines and one "useful" LHS value per cache line, the actual LHS usage might be up to $8C$, bringing us up to a total of $10C + B$.
 So, setting $C = 256$ would fill the cache with a rough upper bound of ~2560 double-precision values, which should still fit comfortably in a >32kb L1 cache.
 
-The same logic also applies to multiplication of a sparse row-major LHS matrix with a dense column-major RHS matrix.
+In practice, this approach does not seem to help all that much.
+The structural non-zeros are already contiguous in memory so reloading them is pretty cheap,
+compared to the (much more expensive) random access to the accompanying dense vector.
 
 ### Blocking to cache the dense vector
 
-Another approach to blocking is based on the observation that the most expensive part of sparse matrix multiplication is the random accesses of the accompanying dense vector.
+We have observed that the most expensive part of sparse matrix multiplication is the random accesses of the accompanying dense vector.
 Each access might require a fetch from main memory if the position of the structural non-zero belongs in a new cache line.
-To avoid this, we operate a block of $B$ sparse vectors with a single dense vector.
-For the one dense vector, we loop over the $B$ sparse vectors and process each sparse vector in its entirety.
-For example, we might a block of LHS sparse rows and compute the dot product for each sparse row with a single dense RHS column.
-Our assumption is that each sparse vector in the block has its structural non-zeros within a cache line of the previous sparse vectors,
-such that we can re-use parts of the lone dense vector that have already been cached.
+To avoid this, we aim to process a block of $B$ sparse vectors for each dense vector.
+For example, we might load a block of LHS sparse rows and compute the dot product for each sparse row with a single dense RHS column.
+
+Here, we assume that each sparse vector in the block contains structural non-zeros at positions that lie within a cache line of the previous sparse vectors.
+This means that we can re-use parts of the lone dense vector that have already been cached in operations with prior sparse vectors.
 We also assume that the cache hierarchy is large enough to hold the entire dense vector, or at least the parts corresponding to the sparse vector's structural non-zeros.
+
+There are no cache considerations when choosing $B$, it is purely a trade-off between speed and memory usage.
+We can also be fairly confident that $B > 1$ is no worse than an unblocked algorithm that uses the same sparse vector with multiple dense vectors.
+Specifically, if the dense vector is so large doesn't fit into cache, then it would probably evict the earlier structural non-zeros of the sparse vector,
+so we would have to reload the sparse vector for the next dense vector anyway.
+
+### Blocking to cache many dense vectors
+
+Alternatively, if the dense vectors are small, we might consider loading a block of $B$ dense vectors into cache at once.
+For each sparse vector, we iterate over the dense vectors in this block, computing dot products or performing a sparse vector multiply-add.
+We then repeat this with a new sparse vector but re-using the same block of dense vectors.
+The idea is that the dense block is small enough that it can be completely cached for quick re-use.
+Obviously, this has pretty limited applicability with regards to the matrix shape.
