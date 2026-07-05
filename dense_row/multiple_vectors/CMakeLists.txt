@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.14)
 project(
     drmv
     VERSION 1.0.0
-    DESCRIPTION "Dense row matrix, multiple vectors"
+    DESCRIPTION "Dense row LHS, multiple vectors RHS"
     LANGUAGES CXX
 )
 

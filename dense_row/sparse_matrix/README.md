@@ -18,43 +18,50 @@ Check out the explanation in [`general/README.md`](../../general/README.md).
 
 ### Naive row-major RHS
 
-The general idea is to accumulate the partial dot products by processing each RHS row.
+If the output is row-major: for each LHS row $i$, we iterate across the RHS rows.
+For each RHS row $h$, we perform a sparse vector multiply-add to the $i$-th output row, using the $h$-th element of the $i$-th LHS row as a scaling factor.
+This involves only operating on the structural non-zeros of RHS row $h$, so it is not contiguous, but at least data locality is preserved for better caching.
 
-If the output is row-major: for each LHS row, we iterate across the RHS rows.
-For each RHS row, we perform a sparse vector multiply-add of the corresponding element from the LHS row with the relevant output row.
-This involves only operating on the structural non-zeros of the sparse RHS row, so it is not contiguous, but at least data locality is preserved.
-
-If the output is column-major, the process is much the same except that the output is done with conceptual output rows.
-The conceptual $i$-th output row consists of the $i$-th element from each output column, which involves many scattered memory accesses.
-There's not much that can be done here as the output's layout does not align with that of the LHS or RHS matrices.
+If the output is column-major, the process is much the same except that the output row is conceptual.
+That is, a conceptual output row $i$ consists of the $i$-th values of all output columns.
+We do not use a temporary buffer as the transfer of data from the temporary buffer to the output columns is a dense operation;
+this may be more expensive than the cachen-unfriendly accesses to multiple output columns.
 
 ### Blocking column-major RHS
 
-We'll use the scheme described in the "Blocking along non-zeros" section in [`general/README.md`](../../general/README.md). 
-For each sparse RHS column, we consider a block of $C$ structural non-zeros.
-We load in a block of $B$ LHS rows and we compute the partial dot product of the $C$ non-zeros with each of those rows.
-We repeat the calculation with the next block of $C$ non-zeros until the entire RHS column is processed, then we move onto the next RHS column.
-Once all RHS columns are processed, we consider the next block of $B$ rows.
+We'll use the framework described in the "Blocking to cache many dense vectors" section in [`general/README.md`](../../general/README.md). 
 
-The idea is to only reload each block of $C$ non-zeros per $B$ LHS rows rather than for each LHS row.
-We try multiple values of $B$ with a fixed $C = 256$.
+We load in a block of $B$ LHS rows.
+For each RHS column $h$, we compute the partial dot product zeros with each LHS row $i$ in the block, storing the result in entry $(i, h)$ of the output matrix.
+Once all RHS columns are processed, we repeat this process with the next block of $B$ LHS rows.
 
+The idea is to keep the RHS column in cache, to re-use across LHS rows in the block; and to keep the block of LHS rows in cache, to re-use with the next RHS column. 
 For a valid comparison with the other strategies, we use 4 accumulators to compute the dot product, given that this is (near-)optimal in the non-blocked strategies.
 
-### Blocking row-major RHS
+### Blocking row-major RHS, row-major output
 
-For each RHS row, we consider a block of $C$ structural non-zeros.
-We load in a block of $B$ LHS rows and, for each LHS row, we perform a sparse vector multiply-add for the $C$ non-zeros to an output row,
-using the corresponding element from the LHS row as the scaling factor. 
-We repeat this with the next block of $C$ non-zeros until the entire RHS row is processed, then we move onto the next row.
-Once all RHS rows are processed, we consider the next block of $B$ rows.
+We'll use the framework described in the "Blocking to cache many dense vectors" section in [`general/README.md`](../../general/README.md). 
+
+We load in a block of $B$ LHS rows.
+We first load in a "primary" block of $B$ LHS rows.
+For each RHS row $h$, we perform a sparse vector multiply-add to the $i$-th output row, using the $h$-th element of the $i$-th LHS row as the scaling factor.
+Once all RHS rows are processed, we repeat this process with the next block of $B$ LHS rows.
 
 The idea is to only reload this block of $C$ non-zeros per $B$ LHS rows rather than for each LHS row.
 Again, we try multiple values of $B$ with the constraint that $BC = 256$.
-Check out the "Blocking along non-zeros" section in [`general/README.md`](../../general/README.md) for more details;
-though the layout is not exactly the same, we are still dealing with accesses to a dense matrix (output instead of LHS).
 
-For a valid comparison with the other strategies, we use 4 accumulators to compute the dot product, given that this is (near-)optimal in the non-blocked strategies.
+### Blocking row-major RHS, row-major output
+
+We first load in a block of $B$ LHS rows.
+We then iterate over all RHS rows.
+For each RHS row $h$, we extract the corresponding column of the LHS row block into a contiguous buffer.
+We then iterate over the structural non-zeros of the RHS row $h$.
+For each non-zero at RHS column $j$ with value $x$, we perform a vector multiply-add of the column buffer to the corresponding block of the $j$-th output column,
+using $x$ as the scaling factor.
+Once all RHS rows are processed, we move onto the next block of $B$ LHS rows until the entire LHS matrix is traversed.
+
+The idea is to encourage contiguous writes to the same output column while we have it in cache.
+We try multiple values of $B$; in this case, we aren't really re-using anything, so there's no need to consider the size of the cache.
 
 ### More comments on blocking
 
@@ -80,178 +87,206 @@ All timings below are obtained on an Intel i7-8850H.
 ```console
 $ ./build/test -r 1000 -c 1000 -H 1000
 Results for 1000 x 1000 x 1000
-naive, column RHS, column output                  : 0.0892774 ± 0.00311636
-naive, column RHS, row output                     : 0.0876773 ± 0.000536357
-naive, row RHS, column output                     : 0.162109 ± 0.000221191
-naive, row RHS, row output                        : 0.0637885 ± 5.88212e-05
-2 accumulators, column RHS, column output         : 0.0597727 ± 8.61024e-05
-2 accumulators, column RHS, row output            : 0.0591234 ± 6.20328e-05
-4 accumulators, column RHS, column output         : 0.0501428 ± 0.00201441
-4 accumulators, column RHS, row output            : 0.047122 ± 8.9244e-05
-8 accumulators, column RHS, column output         : 0.0522704 ± 9.57777e-05
-8 accumulators, column RHS, row output            : 0.0512333 ± 6.02626e-05
-blocked (4), column RHS, column output            : 0.0503465 ± 0.00144052
-blocked (8), column RHS, column output            : 0.055035 ± 8.52601e-05
-blocked (16), column RHS, column output           : 0.05745 ± 5.1339e-05
-blocked (32), column RHS, column output           : 0.068815 ± 0.000211931
-blocked (4), column RHS, row output               : 0.0492887 ± 0.00229152
-blocked (8), column RHS, row output               : 0.0552832 ± 0.00114932
-blocked (16), column RHS, row output              : 0.0574875 ± 0.000102992
-blocked (32), column RHS, row output              : 0.0742268 ± 7.66527e-05
-blocked (4), row RHS, row output                  : 0.0610615 ± 0.000142981
-blocked (8), row RHS, row output                  : 0.065272 ± 0.00152066
-blocked (16), row RHS, row output                 : 0.0707286 ± 0.000181263
-blocked (32), row RHS, row output                 : 0.0910446 ± 8.38578e-05
+naive, column RHS, column output                  : 0.0878962 ± 0.000324639
+naive, column RHS, row output                     : 0.0881572 ± 0.000810743
+naive, row RHS, column output                     : 0.153606 ± 0.00290407
+naive, row RHS, row output                        : 0.065012 ± 0.000358812
+2 accumulators, column RHS, column output         : 0.0596714 ± 0.000650157
+2 accumulators, column RHS, row output            : 0.0571463 ± 0.000520297
+4 accumulators, column RHS, column output         : 0.0486166 ± 0.000556656
+4 accumulators, column RHS, row output            : 0.0464251 ± 0.000205512
+8 accumulators, column RHS, column output         : 0.0528684 ± 0.000518945
+8 accumulators, column RHS, row output            : 0.0519468 ± 0.00049468
+blocked (B = 2), column RHS, column output        : 0.0473204 ± 0.00104315
+blocked (B = 4), column RHS, column output        : 0.0455085 ± 0.000275765
+blocked (B = 8), column RHS, column output        : 0.0523257 ± 0.000651195
+blocked (B = 16), column RHS, column output       : 0.0577133 ± 0.00124297
+blocked (B = 2), column RHS, row output           : 0.0456382 ± 6.28293e-05
+blocked (B = 4), column RHS, row output           : 0.046021 ± 0.000851325
+blocked (B = 8), column RHS, row output           : 0.0526119 ± 0.00035841
+blocked (B = 16), column RHS, row output          : 0.0571435 ± 0.000553862
+blocked (B = 4), row RHS, column output           : 0.0834659 ± 0.0025922
+blocked (B = 8), row RHS, column output           : 0.0617852 ± 0.000389524
+blocked (B = 16), row RHS, column output          : 0.0537889 ± 0.000751421
+blocked (B = 32), row RHS, column output          : 0.0468745 ± 7.49321e-05
+blocked (B = 2), row RHS, row output              : 0.0688432 ± 0.00206754
+blocked (B = 4), row RHS, row output              : 0.0615878 ± 0.00103339
+blocked (B = 8), row RHS, row output              : 0.063838 ± 0.000824228
+blocked (B = 16), row RHS, row output             : 0.0730145 ± 0.00147694
 
 $ ./build/test -r 10000 -c 1000 -H 100
 Results for 10000 x 1000 x 100
-naive, column RHS, column output                  : 0.0896739 ± 0.000141229
-naive, column RHS, row output                     : 0.0905204 ± 8.89256e-05
-naive, row RHS, column output                     : 0.15935 ± 0.000174946
-naive, row RHS, row output                        : 0.100997 ± 0.000142555
-2 accumulators, column RHS, column output         : 0.0617334 ± 6.61855e-05
-2 accumulators, column RHS, row output            : 0.0612758 ± 0.000164586
-4 accumulators, column RHS, column output         : 0.0477319 ± 5.803e-05
-4 accumulators, column RHS, row output            : 0.0474101 ± 4.74352e-05
-8 accumulators, column RHS, column output         : 0.0533701 ± 6.52493e-05
-8 accumulators, column RHS, row output            : 0.0530003 ± 6.01431e-05
-blocked (4), column RHS, column output            : 0.0528784 ± 0.000161211
-blocked (8), column RHS, column output            : 0.058653 ± 4.64868e-05
-blocked (16), column RHS, column output           : 0.0616251 ± 0.000113136
-blocked (32), column RHS, column output           : 0.0715242 ± 3.74633e-05
-blocked (4), column RHS, row output               : 0.0527134 ± 6.41559e-05
-blocked (8), column RHS, row output               : 0.0602044 ± 4.12874e-05
-blocked (16), column RHS, row output              : 0.0621268 ± 9.20006e-05
-blocked (32), column RHS, row output              : 0.0740952 ± 0.000201506
-blocked (4), row RHS, row output                  : 0.0855018 ± 6.41533e-05
-blocked (8), row RHS, row output                  : 0.0758042 ± 9.65839e-05
-blocked (16), row RHS, row output                 : 0.0763759 ± 0.000147177
-blocked (32), row RHS, row output                 : 0.0736443 ± 9.33352e-05
+naive, column RHS, column output                  : 0.0948069 ± 0.00204315
+naive, column RHS, row output                     : 0.0927566 ± 0.0012289
+naive, row RHS, column output                     : 0.14566 ± 0.000846019
+naive, row RHS, row output                        : 0.102035 ± 0.000534477
+2 accumulators, column RHS, column output         : 0.0612898 ± 0.000463529
+2 accumulators, column RHS, row output            : 0.0595399 ± 0.000487048
+4 accumulators, column RHS, column output         : 0.048603 ± 0.000644526
+4 accumulators, column RHS, row output            : 0.0471952 ± 0.000776097
+8 accumulators, column RHS, column output         : 0.0544294 ± 0.00115983
+8 accumulators, column RHS, row output            : 0.0543957 ± 0.00115063
+blocked (B = 2), column RHS, column output        : 0.0479996 ± 0.000677928
+blocked (B = 4), column RHS, column output        : 0.0510733 ± 0.000752213
+blocked (B = 8), column RHS, column output        : 0.0577385 ± 0.000428673
+blocked (B = 16), column RHS, column output       : 0.0606805 ± 0.000665472
+blocked (B = 2), column RHS, row output           : 0.0480033 ± 0.000535116
+blocked (B = 4), column RHS, row output           : 0.0519693 ± 0.00112301
+blocked (B = 8), column RHS, row output           : 0.0589256 ± 0.000730411
+blocked (B = 16), column RHS, row output          : 0.0626283 ± 0.000945612
+blocked (B = 4), row RHS, column output           : 0.0930699 ± 0.000579988
+blocked (B = 8), row RHS, column output           : 0.0703955 ± 0.000661792
+blocked (B = 16), row RHS, column output          : 0.0588253 ± 0.000670634
+blocked (B = 32), row RHS, column output          : 0.0514689 ± 0.000749348
+blocked (B = 2), row RHS, row output              : 0.0838474 ± 0.000608089
+blocked (B = 4), row RHS, row output              : 0.0796109 ± 0.00134379
+blocked (B = 8), row RHS, row output              : 0.0716066 ± 0.000632828
+blocked (B = 16), row RHS, row output             : 0.0749021 ± 0.000908967
 
 $ ./build/test -r 10000 -c 100 -H 1000
 Results for 10000 x 100 x 1000
-naive, column RHS, column output                  : 0.0950454 ± 0.000141788
-naive, column RHS, row output                     : 0.102617 ± 0.000179523
-naive, row RHS, column output                     : 0.181536 ± 8.65722e-05
-naive, row RHS, row output                        : 0.0649275 ± 6.66381e-05
-2 accumulators, column RHS, column output         : 0.103378 ± 8.82317e-05
-2 accumulators, column RHS, row output            : 0.0841351 ± 0.000111589
-4 accumulators, column RHS, column output         : 0.111306 ± 0.000128773
-4 accumulators, column RHS, row output            : 0.0936444 ± 0.000100604
-8 accumulators, column RHS, column output         : 0.128851 ± 7.36412e-05
-8 accumulators, column RHS, row output            : 0.115579 ± 0.000107116
-blocked (4), column RHS, column output            : 0.12352 ± 0.000155212
-blocked (8), column RHS, column output            : 0.107909 ± 0.000156859
-blocked (16), column RHS, column output           : 0.0978609 ± 0.000108351
-blocked (32), column RHS, column output           : 0.097173 ± 0.000260662
-blocked (4), column RHS, row output               : 0.106155 ± 0.000155506
-blocked (8), column RHS, row output               : 0.101461 ± 7.27072e-05
-blocked (16), column RHS, row output              : 0.0954051 ± 9.94933e-05
-blocked (32), column RHS, row output              : 0.0975488 ± 7.19246e-05
-blocked (4), row RHS, row output                  : 0.0680621 ± 0.000107587
-blocked (8), row RHS, row output                  : 0.071647 ± 6.56509e-05
-blocked (16), row RHS, row output                 : 0.0738261 ± 0.000108291
-blocked (32), row RHS, row output                 : 0.0787044 ± 4.0355e-05
+naive, column RHS, column output                  : 0.109946 ± 0.000735865
+naive, column RHS, row output                     : 0.0875347 ± 0.000611004
+naive, row RHS, column output                     : 0.177027 ± 0.00161501
+naive, row RHS, row output                        : 0.0664627 ± 0.000709139
+2 accumulators, column RHS, column output         : 0.0970532 ± 0.000982323
+2 accumulators, column RHS, row output            : 0.079504 ± 0.000660645
+4 accumulators, column RHS, column output         : 0.10199 ± 0.000823762
+4 accumulators, column RHS, row output            : 0.082061 ± 0.000702401
+8 accumulators, column RHS, column output         : 0.121531 ± 0.00183817
+8 accumulators, column RHS, row output            : 0.105179 ± 0.000721412
+blocked (B = 2), column RHS, column output        : 0.096622 ± 0.000929839
+blocked (B = 4), column RHS, column output        : 0.0888532 ± 0.000758845
+blocked (B = 8), column RHS, column output        : 0.0823445 ± 0.000698358
+blocked (B = 16), column RHS, column output       : 0.0782719 ± 0.00123108
+blocked (B = 2), column RHS, row output           : 0.0904822 ± 0.00102316
+blocked (B = 4), column RHS, row output           : 0.0849091 ± 0.000648226
+blocked (B = 8), column RHS, row output           : 0.0820203 ± 0.0005767
+blocked (B = 16), column RHS, row output          : 0.0780949 ± 0.000479895
+blocked (B = 4), row RHS, column output           : 0.0889112 ± 0.000959019
+blocked (B = 8), row RHS, column output           : 0.0694219 ± 0.000775445
+blocked (B = 16), row RHS, column output          : 0.0597469 ± 0.000602835
+blocked (B = 32), row RHS, column output          : 0.0544123 ± 0.000805632
+blocked (B = 2), row RHS, row output              : 0.0686331 ± 0.000785255
+blocked (B = 4), row RHS, row output              : 0.0698478 ± 0.000865177
+blocked (B = 8), row RHS, row output              : 0.0731732 ± 0.00082704
+blocked (B = 16), row RHS, row output             : 0.0759668 ± 0.000618334
 
 $ ./build/test -r 1000 -c 100 -H 10000
 Results for 1000 x 100 x 10000
-naive, column RHS, column output                  : 0.104862 ± 0.00039149
-naive, column RHS, row output                     : 0.113929 ± 4.59929e-05
-naive, row RHS, column output                     : 0.714385 ± 0.000200138
-naive, row RHS, row output                        : 0.0830595 ± 8.01918e-05
-2 accumulators, column RHS, column output         : 0.135867 ± 0.000120349
-2 accumulators, column RHS, row output            : 0.127569 ± 0.000169469
-4 accumulators, column RHS, column output         : 0.139199 ± 0.000228435
-4 accumulators, column RHS, row output            : 0.129963 ± 0.000331864
-8 accumulators, column RHS, column output         : 0.157908 ± 0.000155329
-8 accumulators, column RHS, row output            : 0.148905 ± 0.000126681
-blocked (4), column RHS, column output            : 0.133962 ± 0.000368637
-blocked (8), column RHS, column output            : 0.126775 ± 0.000417733
-blocked (16), column RHS, column output           : 0.117856 ± 0.000205073
-blocked (32), column RHS, column output           : 0.11381 ± 0.000337485
-blocked (4), column RHS, row output               : 0.110793 ± 9.13275e-05
-blocked (8), column RHS, row output               : 0.103157 ± 0.000385362
-blocked (16), column RHS, row output              : 0.0952371 ± 0.000112142
-blocked (32), column RHS, row output              : 0.0975245 ± 0.000537609
-blocked (4), row RHS, row output                  : 0.102378 ± 8.32979e-05
-blocked (8), row RHS, row output                  : 0.127291 ± 0.000257373
-blocked (16), row RHS, row output                 : 0.128616 ± 6.66014e-05
-blocked (32), row RHS, row output                 : 0.13087 ± 0.000102859
+naive, column RHS, column output                  : 0.120722 ± 0.00196983
+naive, column RHS, row output                     : 0.0996909 ± 0.000981552
+naive, row RHS, column output                     : 0.7957 ± 0.0132383
+naive, row RHS, row output                        : 0.0858552 ± 0.00173779
+2 accumulators, column RHS, column output         : 0.128142 ± 0.00229829
+2 accumulators, column RHS, row output            : 0.113045 ± 0.000822001
+4 accumulators, column RHS, column output         : 0.135153 ± 0.0020972
+4 accumulators, column RHS, row output            : 0.117616 ± 0.00118846
+8 accumulators, column RHS, column output         : 0.154784 ± 0.00135165
+8 accumulators, column RHS, row output            : 0.147388 ± 0.000867336
+blocked (B = 2), column RHS, column output        : 0.120502 ± 0.00618823
+blocked (B = 4), column RHS, column output        : 0.0934729 ± 0.00120754
+blocked (B = 8), column RHS, column output        : 0.0839814 ± 0.00111222
+blocked (B = 16), column RHS, column output       : 0.0789731 ± 0.00290781
+blocked (B = 2), column RHS, row output           : 0.112555 ± 0.000799508
+blocked (B = 4), column RHS, row output           : 0.0921867 ± 0.000770479
+blocked (B = 8), column RHS, row output           : 0.0842882 ± 0.000966198
+blocked (B = 16), column RHS, row output          : 0.0763672 ± 0.000443098
+blocked (B = 4), row RHS, column output           : 0.200511 ± 0.00822637
+blocked (B = 8), row RHS, column output           : 0.129857 ± 0.00848038
+blocked (B = 16), row RHS, column output          : 0.1007 ± 0.00487358
+blocked (B = 32), row RHS, column output          : 0.101715 ± 0.0024552
+blocked (B = 2), row RHS, row output              : 0.0837698 ± 0.00160519
+blocked (B = 4), row RHS, row output              : 0.111519 ± 0.00133888
+blocked (B = 8), row RHS, row output              : 0.132684 ± 0.000982688
+blocked (B = 16), row RHS, row output             : 0.134107 ± 0.000932192
 
 $ ./build/test -r 1000 -c 10000 -H 100
 Results for 1000 x 10000 x 100
-naive, column RHS, column output                  : 0.0998887 ± 0.000620346
-naive, column RHS, row output                     : 0.0995326 ± 0.000289097
-naive, row RHS, column output                     : 0.201937 ± 0.000962524
-naive, row RHS, row output                        : 0.128207 ± 0.000260258
-2 accumulators, column RHS, column output         : 0.066282 ± 0.000436208
-2 accumulators, column RHS, row output            : 0.0665921 ± 0.000546502
-4 accumulators, column RHS, column output         : 0.060641 ± 7.65202e-05
-4 accumulators, column RHS, row output            : 0.0609755 ± 0.000327009
-8 accumulators, column RHS, column output         : 0.0611615 ± 0.000423257
-8 accumulators, column RHS, row output            : 0.0619696 ± 0.000803974
-blocked (4), column RHS, column output            : 0.0791777 ± 0.000635575
-blocked (8), column RHS, column output            : 0.0901228 ± 0.000296881
-blocked (16), column RHS, column output           : 0.0914351 ± 0.000636663
-blocked (32), column RHS, column output           : 0.0920371 ± 8.76251e-05
-blocked (4), column RHS, row output               : 0.0793424 ± 0.000641507
-blocked (8), column RHS, row output               : 0.0906352 ± 9.42776e-05
-blocked (16), column RHS, row output              : 0.0915081 ± 0.000717165
-blocked (32), column RHS, row output              : 0.0933739 ± 0.000672125
-blocked (4), row RHS, row output                  : 0.106279 ± 0.000625118
-blocked (8), row RHS, row output                  : 0.0921787 ± 0.000582896
-blocked (16), row RHS, row output                 : 0.0900692 ± 0.000527936
-blocked (32), row RHS, row output                 : 0.0820354 ± 0.000598814
-
-$ ./build/test -r 100 -c 1000 -H 10000
-Results for 100 x 1000 x 10000
-naive, column RHS, column output                  : 0.112362 ± 0.000223281
-naive, column RHS, row output                     : 0.112396 ± 0.00159201
-naive, row RHS, column output                     : 0.392945 ± 0.00302875
-naive, row RHS, row output                        : 0.10274 ± 0.00186278
-2 accumulators, column RHS, column output         : 0.0895425 ± 0.000220995
-2 accumulators, column RHS, row output            : 0.086574 ± 0.00139177
-4 accumulators, column RHS, column output         : 0.0840668 ± 0.00166227
-4 accumulators, column RHS, row output            : 0.0783171 ± 0.00147379
-8 accumulators, column RHS, column output         : 0.0868273 ± 0.000202269
-8 accumulators, column RHS, row output            : 0.0826047 ± 0.00150183
-blocked (4), column RHS, column output            : 0.066548 ± 0.000136511
-blocked (8), column RHS, column output            : 0.0661931 ± 0.000967279
-blocked (16), column RHS, column output           : 0.0604965 ± 4.55506e-05
-blocked (32), column RHS, column output           : 0.0719991 ± 0.000842371
-blocked (4), column RHS, row output               : 0.0556914 ± 6.7125e-05
-blocked (8), column RHS, row output               : 0.0590753 ± 0.000816474
-blocked (16), column RHS, row output              : 0.0581154 ± 8.57675e-05
-blocked (32), column RHS, row output              : 0.0746892 ± 4.1354e-05
-blocked (4), row RHS, row output                  : 0.109445 ± 0.000171211
-blocked (8), row RHS, row output                  : 0.123154 ± 0.000222105
-blocked (16), row RHS, row output                 : 0.124078 ± 0.00127223
-blocked (32), row RHS, row output                 : 0.122868 ± 0.00124057
+naive, column RHS, column output                  : 0.101465 ± 0.000716218
+naive, column RHS, row output                     : 0.101284 ± 0.000678351
+naive, row RHS, column output                     : 0.178274 ± 0.00103491
+naive, row RHS, row output                        : 0.132779 ± 0.00138293
+2 accumulators, column RHS, column output         : 0.0676833 ± 0.00108071
+2 accumulators, column RHS, row output            : 0.0679856 ± 0.00116596
+4 accumulators, column RHS, column output         : 0.0642947 ± 0.00124476
+4 accumulators, column RHS, row output            : 0.0630937 ± 0.0015401
+8 accumulators, column RHS, column output         : 0.0621583 ± 0.000524084
+8 accumulators, column RHS, row output            : 0.0644425 ± 0.00155881
+blocked (B = 2), column RHS, column output        : 0.0705926 ± 0.0019203
+blocked (B = 4), column RHS, column output        : 0.0855155 ± 0.000654267
+blocked (B = 8), column RHS, column output        : 0.098875 ± 0.000803154
+blocked (B = 16), column RHS, column output       : 0.101587 ± 0.00236132
+blocked (B = 2), column RHS, row output           : 0.0700531 ± 0.00192769
+blocked (B = 4), column RHS, row output           : 0.0868342 ± 0.00150989
+blocked (B = 8), column RHS, row output           : 0.0997562 ± 0.00107749
+blocked (B = 16), column RHS, row output          : 0.10273 ± 0.00156294
+blocked (B = 4), row RHS, column output           : 0.116441 ± 0.0031435
+blocked (B = 8), row RHS, column output           : 0.0844556 ± 0.00199657
+blocked (B = 16), row RHS, column output          : 0.0637723 ± 0.000695132
+blocked (B = 32), row RHS, column output          : 0.0526532 ± 0.000564773
+blocked (B = 2), row RHS, row output              : 0.11168 ± 0.000661394
+blocked (B = 4), row RHS, row output              : 0.10056 ± 0.00112758
+blocked (B = 8), row RHS, row output              : 0.0920169 ± 0.00255467
+blocked (B = 16), row RHS, row output             : 0.0879888 ± 0.000641472
 
 $ ./build/test -r 100 -c 10000 -H 1000
 Results for 100 x 10000 x 1000
-naive, column RHS, column output                  : 0.11908 ± 0.00156035
-naive, column RHS, row output                     : 0.117684 ± 0.000627956
-naive, row RHS, column output                     : 0.226216 ± 0.00310865
-naive, row RHS, row output                        : 0.121474 ± 0.00211006
-2 accumulators, column RHS, column output         : 0.0882659 ± 0.000217523
-2 accumulators, column RHS, row output            : 0.088848 ± 0.00160652
-4 accumulators, column RHS, column output         : 0.0831308 ± 0.000710365
-4 accumulators, column RHS, row output            : 0.0823708 ± 0.00126313
-8 accumulators, column RHS, column output         : 0.0837547 ± 0.000168437
-8 accumulators, column RHS, row output            : 0.0839312 ± 0.00128118
-blocked (4), column RHS, column output            : 0.0977332 ± 5.28102e-05
-blocked (8), column RHS, column output            : 0.114487 ± 0.000832751
-blocked (16), column RHS, column output           : 0.114263 ± 0.000212684
-blocked (32), column RHS, column output           : 0.113349 ± 0.00029408
-blocked (4), column RHS, row output               : 0.099031 ± 0.00085099
-blocked (8), column RHS, row output               : 0.114383 ± 0.000267943
-blocked (16), column RHS, row output              : 0.115843 ± 0.0010561
-blocked (32), column RHS, row output              : 0.11449 ± 0.000857512
-blocked (4), row RHS, row output                  : 0.0805472 ± 0.00237428
-blocked (8), row RHS, row output                  : 0.0737721 ± 0.000235451
-blocked (16), row RHS, row output                 : 0.0809959 ± 0.000739008
-blocked (32), row RHS, row output                 : 0.0968116 ± 0.000818091
+naive, column RHS, column output                  : 0.120817 ± 0.00290571
+naive, column RHS, row output                     : 0.121032 ± 0.00188736
+naive, row RHS, column output                     : 0.219273 ± 0.00707955
+naive, row RHS, row output                        : 0.124384 ± 0.00225408
+2 accumulators, column RHS, column output         : 0.0977286 ± 0.00365746
+2 accumulators, column RHS, row output            : 0.0881466 ± 0.00170752
+4 accumulators, column RHS, column output         : 0.0891254 ± 0.00315387
+4 accumulators, column RHS, row output            : 0.0884202 ± 0.00337249
+8 accumulators, column RHS, column output         : 0.090639 ± 0.0035948
+8 accumulators, column RHS, row output            : 0.0892081 ± 0.00396238
+blocked (B = 2), column RHS, column output        : 0.0839918 ± 0.00278455
+blocked (B = 4), column RHS, column output        : 0.0896635 ± 0.00154538
+blocked (B = 8), column RHS, column output        : 0.0935343 ± 0.000855449
+blocked (B = 16), column RHS, column output       : 0.0917518 ± 0.000941979
+blocked (B = 2), column RHS, row output           : 0.0834112 ± 0.00238374
+blocked (B = 4), column RHS, row output           : 0.0886158 ± 0.00138965
+blocked (B = 8), column RHS, row output           : 0.0924072 ± 0.000781431
+blocked (B = 16), column RHS, row output          : 0.0929008 ± 0.00109351
+blocked (B = 4), row RHS, column output           : 0.098158 ± 0.00250134
+blocked (B = 8), row RHS, column output           : 0.0684725 ± 0.000638602
+blocked (B = 16), row RHS, column output          : 0.0573312 ± 0.000722654
+blocked (B = 32), row RHS, column output          : 0.0509606 ± 0.000623419
+blocked (B = 2), row RHS, row output              : 0.0992463 ± 0.0024367
+blocked (B = 4), row RHS, row output              : 0.0796003 ± 0.00146093
+blocked (B = 8), row RHS, row output              : 0.075233 ± 0.000861898
+blocked (B = 16), row RHS, row output             : 0.0835632 ± 0.000959446
+
+$ ./build/test -r 100 -c 1000 -H 10000
+Results for 100 x 1000 x 10000
+naive, column RHS, column output                  : 0.117501 ± 0.00149812
+naive, column RHS, row output                     : 0.118636 ± 0.00798042
+naive, row RHS, column output                     : 0.420457 ± 0.01394
+naive, row RHS, row output                        : 0.103149 ± 0.000544505
+2 accumulators, column RHS, column output         : 0.103868 ± 0.00935742
+2 accumulators, column RHS, row output            : 0.0835087 ± 0.000418898
+4 accumulators, column RHS, column output         : 0.0834135 ± 0.000569912
+4 accumulators, column RHS, row output            : 0.0836616 ± 0.00654664
+8 accumulators, column RHS, column output         : 0.098503 ± 0.00987126
+8 accumulators, column RHS, row output            : 0.0838651 ± 0.00174494
+blocked (B = 2), column RHS, column output        : 0.0646724 ± 0.00124711
+blocked (B = 4), column RHS, column output        : 0.0547292 ± 0.000686996
+blocked (B = 8), column RHS, column output        : 0.0582607 ± 0.00193014
+blocked (B = 16), column RHS, column output       : 0.058896 ± 0.0011779
+blocked (B = 2), column RHS, row output           : 0.0620762 ± 0.000572058
+blocked (B = 4), column RHS, row output           : 0.0563956 ± 0.00279614
+blocked (B = 8), column RHS, row output           : 0.056569 ± 0.000202527
+blocked (B = 16), column RHS, row output          : 0.0586977 ± 0.000482509
+blocked (B = 4), row RHS, column output           : 0.149451 ± 0.000766648
+blocked (B = 8), row RHS, column output           : 0.103363 ± 0.000736214
+blocked (B = 16), row RHS, column output          : 0.0812461 ± 0.000929646
+blocked (B = 32), row RHS, column output          : 0.0756875 ± 0.000534859
+blocked (B = 2), row RHS, row output              : 0.104942 ± 0.00519459
+blocked (B = 4), row RHS, row output              : 0.118235 ± 0.000517746
+blocked (B = 8), row RHS, row output              : 0.132969 ± 0.00172349
+blocked (B = 16), row RHS, row output             : 0.129434 ± 0.000435351
 ```
 
 ## Single-precision results
@@ -261,178 +296,207 @@ Again, but with single-precision floats.
 ```console
 $ ./build/test_float -r 1000 -c 1000 -H 1000
 Results for 1000 x 1000 x 1000
-naive, column RHS, column output                  : 0.084794 ± 1.70524e-05
-naive, column RHS, row output                     : 0.0860574 ± 0.000106904
-naive, row RHS, column output                     : 0.156139 ± 0.000112304
-naive, row RHS, row output                        : 0.0615171 ± 7.99304e-05
-2 accumulators, column RHS, column output         : 0.0579636 ± 3.54169e-05
-2 accumulators, column RHS, row output            : 0.057601 ± 1.92757e-05
-4 accumulators, column RHS, column output         : 0.0419705 ± 3.56717e-05
-4 accumulators, column RHS, row output            : 0.0417615 ± 5.52174e-05
-8 accumulators, column RHS, column output         : 0.0442458 ± 6.00516e-05
-8 accumulators, column RHS, row output            : 0.0438837 ± 1.75433e-05
-blocked (4), column RHS, column output            : 0.0408319 ± 2.79126e-05
-blocked (8), column RHS, column output            : 0.0414759 ± 3.57206e-05
-blocked (16), column RHS, column output           : 0.0456595 ± 4.21842e-05
-blocked (32), column RHS, column output           : 0.0471338 ± 2.96883e-05
-blocked (4), column RHS, row output               : 0.0392126 ± 3.37548e-05
-blocked (8), column RHS, row output               : 0.0416918 ± 4.99251e-05
-blocked (16), column RHS, row output              : 0.0466943 ± 3.45911e-05
-blocked (32), column RHS, row output              : 0.0490402 ± 3.34616e-05
-blocked (4), row RHS, row output                  : 0.0798452 ± 0.000134379
-blocked (8), row RHS, row output                  : 0.0787249 ± 9.72572e-05
-blocked (16), row RHS, row output                 : 0.0779139 ± 7.1665e-05
-blocked (32), row RHS, row output                 : 0.0775751 ± 7.46835e-05
+naive, column RHS, column output                  : 0.0874761 ± 0.000826283
+naive, column RHS, row output                     : 0.0872662 ± 0.000611679
+naive, row RHS, column output                     : 0.137887 ± 0.000890043
+naive, row RHS, row output                        : 0.0629186 ± 0.000597571
+2 accumulators, column RHS, column output         : 0.0558275 ± 9.11151e-05
+2 accumulators, column RHS, row output            : 0.0568908 ± 0.000389589
+4 accumulators, column RHS, column output         : 0.0430918 ± 0.000351869
+4 accumulators, column RHS, row output            : 0.0434039 ± 0.000365486
+8 accumulators, column RHS, column output         : 0.0430729 ± 0.000312195
+8 accumulators, column RHS, row output            : 0.0426086 ± 0.00014262
+blocked (B = 2), column RHS, column output        : 0.0401271 ± 5.68176e-05
+blocked (B = 4), column RHS, column output        : 0.0384243 ± 0.000555571
+blocked (B = 8), column RHS, column output        : 0.0394067 ± 0.000543067
+blocked (B = 16), column RHS, column output       : 0.0439723 ± 0.000182956
+blocked (B = 2), column RHS, row output           : 0.0411475 ± 0.000123173
+blocked (B = 4), column RHS, row output           : 0.0385671 ± 0.000441023
+blocked (B = 8), column RHS, row output           : 0.0397183 ± 0.000363693
+blocked (B = 16), column RHS, row output          : 0.044455 ± 0.000142503
+blocked (B = 4), row RHS, column output           : 0.0670589 ± 0.00128168
+blocked (B = 8), row RHS, column output           : 0.0429492 ± 0.000240883
+blocked (B = 16), row RHS, column output          : 0.033055 ± 0.000609506
+blocked (B = 32), row RHS, column output          : 0.0271798 ± 0.000103213
+blocked (B = 2), row RHS, row output              : 0.060916 ± 0.000410721
+blocked (B = 4), row RHS, row output              : 0.0584108 ± 0.000701943
+blocked (B = 8), row RHS, row output              : 0.0577139 ± 0.000760101
+blocked (B = 16), row RHS, row output             : 0.0578677 ± 0.000316478
 
 $ ./build/test_float -r 10000 -c 1000 -H 100
 Results for 10000 x 1000 x 100
-naive, column RHS, column output                  : 0.0846439 ± 9.06159e-05
-naive, column RHS, row output                     : 0.0856898 ± 0.000152455
-naive, row RHS, column output                     : 0.148788 ± 0.000350496
-naive, row RHS, row output                        : 0.093241 ± 7.8556e-05
-2 accumulators, column RHS, column output         : 0.057202 ± 7.76663e-05
-2 accumulators, column RHS, row output            : 0.0568503 ± 6.9655e-05
-4 accumulators, column RHS, column output         : 0.0390355 ± 9.36556e-05
-4 accumulators, column RHS, row output            : 0.0388564 ± 3.87268e-05
-8 accumulators, column RHS, column output         : 0.042899 ± 5.77994e-05
-8 accumulators, column RHS, row output            : 0.0428841 ± 4.24061e-05
-blocked (4), column RHS, column output            : 0.040598 ± 7.56921e-05
-blocked (8), column RHS, column output            : 0.042261 ± 8.46275e-05
-blocked (16), column RHS, column output           : 0.0472035 ± 6.50256e-05
-blocked (32), column RHS, column output           : 0.0485726 ± 5.12884e-05
-blocked (4), column RHS, row output               : 0.040102 ± 6.90963e-05
-blocked (8), column RHS, row output               : 0.0426047 ± 0.000360339
-blocked (16), column RHS, row output              : 0.0482694 ± 9.34152e-05
-blocked (32), column RHS, row output              : 0.0495094 ± 8.14422e-05
-blocked (4), row RHS, row output                  : 0.0968677 ± 0.000165809
-blocked (8), row RHS, row output                  : 0.08676 ± 0.000137591
-blocked (16), row RHS, row output                 : 0.0848575 ± 0.000163335
-blocked (32), row RHS, row output                 : 0.0854549 ± 9.11942e-05
+naive, column RHS, column output                  : 0.0857596 ± 9.33081e-05
+naive, column RHS, row output                     : 0.0858909 ± 0.000131817
+naive, row RHS, column output                     : 0.13396 ± 0.000105479
+naive, row RHS, row output                        : 0.100756 ± 3.32669e-05
+2 accumulators, column RHS, column output         : 0.0548645 ± 3.30878e-05
+2 accumulators, column RHS, row output            : 0.0551683 ± 0.000162397
+4 accumulators, column RHS, column output         : 0.039272 ± 6.24103e-05
+4 accumulators, column RHS, row output            : 0.0399384 ± 8.6505e-05
+8 accumulators, column RHS, column output         : 0.0418875 ± 6.52852e-05
+8 accumulators, column RHS, row output            : 0.0419878 ± 9.6938e-05
+blocked (B = 2), column RHS, column output        : 0.039116 ± 0.000167554
+blocked (B = 4), column RHS, column output        : 0.0388157 ± 7.64176e-05
+blocked (B = 8), column RHS, column output        : 0.040493 ± 3.98156e-05
+blocked (B = 16), column RHS, column output       : 0.0453839 ± 2.15657e-05
+blocked (B = 2), column RHS, row output           : 0.0392978 ± 3.80115e-05
+blocked (B = 4), column RHS, row output           : 0.0387615 ± 8.15636e-05
+blocked (B = 8), column RHS, row output           : 0.0411562 ± 2.0559e-05
+blocked (B = 16), column RHS, row output          : 0.0456293 ± 5.46038e-05
+blocked (B = 4), row RHS, column output           : 0.086951 ± 5.56997e-05
+blocked (B = 8), row RHS, column output           : 0.0605789 ± 3.37464e-05
+blocked (B = 16), row RHS, column output          : 0.0443298 ± 8.23804e-05
+blocked (B = 32), row RHS, column output          : 0.036885 ± 3.89106e-05
+blocked (B = 2), row RHS, row output              : 0.0783272 ± 7.27655e-05
+blocked (B = 4), row RHS, row output              : 0.0720772 ± 0.000109543
+blocked (B = 8), row RHS, row output              : 0.0648631 ± 5.40128e-05
+blocked (B = 16), row RHS, row output             : 0.0641543 ± 8.07201e-05
+
 
 $ ./build/test_float -r 10000 -c 100 -H 1000
 Results for 10000 x 100 x 1000
-naive, column RHS, column output                  : 0.0913859 ± 0.000114128
-naive, column RHS, row output                     : 0.101728 ± 5.33351e-05
-naive, row RHS, column output                     : 0.18883 ± 0.0001558
-naive, row RHS, row output                        : 0.0568931 ± 0.000109212
-2 accumulators, column RHS, column output         : 0.108405 ± 0.000597306
-2 accumulators, column RHS, row output            : 0.0951006 ± 0.000144995
-4 accumulators, column RHS, column output         : 0.0970135 ± 0.000105064
-4 accumulators, column RHS, row output            : 0.081333 ± 0.000132641
-8 accumulators, column RHS, column output         : 0.117602 ± 0.000233889
-8 accumulators, column RHS, row output            : 0.107551 ± 9.46512e-05
-blocked (4), column RHS, column output            : 0.105824 ± 0.00020663
-blocked (8), column RHS, column output            : 0.0914136 ± 5.92165e-05
-blocked (16), column RHS, column output           : 0.0815836 ± 0.000149629
-blocked (32), column RHS, column output           : 0.0797173 ± 0.000117896
-blocked (4), column RHS, row output               : 0.0951281 ± 0.00013393
-blocked (8), column RHS, row output               : 0.0909134 ± 0.000110245
-blocked (16), column RHS, row output              : 0.0845074 ± 8.30242e-05
-blocked (32), column RHS, row output              : 0.0833955 ± 0.000122094
-blocked (4), row RHS, row output                  : 0.0818575 ± 7.94732e-05
-blocked (8), row RHS, row output                  : 0.0808141 ± 8.44689e-05
-blocked (16), row RHS, row output                 : 0.0802487 ± 3.63879e-05
-blocked (32), row RHS, row output                 : 0.0797902 ± 0.000143855
+naive, column RHS, column output                  : 0.0904429 ± 0.000109953
+naive, column RHS, row output                     : 0.0958459 ± 0.000346578
+naive, row RHS, column output                     : 0.169234 ± 9.46053e-05
+naive, row RHS, row output                        : 0.0575207 ± 6.76014e-05
+2 accumulators, column RHS, column output         : 0.0882594 ± 0.000146815
+2 accumulators, column RHS, row output            : 0.0805351 ± 0.000187047
+4 accumulators, column RHS, column output         : 0.0870306 ± 8.35311e-05
+4 accumulators, column RHS, row output            : 0.0774202 ± 0.00015193
+8 accumulators, column RHS, column output         : 0.105422 ± 4.32307e-05
+8 accumulators, column RHS, row output            : 0.0945545 ± 5.6317e-05
+blocked (B = 2), column RHS, column output        : 0.0845216 ± 5.89951e-05
+blocked (B = 4), column RHS, column output        : 0.0769251 ± 5.76316e-05
+blocked (B = 8), column RHS, column output        : 0.0708743 ± 7.31354e-05
+blocked (B = 16), column RHS, column output       : 0.064435 ± 9.73394e-05
+blocked (B = 2), column RHS, row output           : 0.0820184 ± 6.03442e-05
+blocked (B = 4), column RHS, row output           : 0.0770186 ± 0.000114863
+blocked (B = 8), column RHS, row output           : 0.0725927 ± 3.36216e-05
+blocked (B = 16), column RHS, row output          : 0.0653072 ± 6.88316e-05
+blocked (B = 4), row RHS, column output           : 0.0781293 ± 0.000102733
+blocked (B = 8), row RHS, column output           : 0.049153 ± 1.96414e-05
+blocked (B = 16), row RHS, column output          : 0.0375653 ± 2.24668e-05
+blocked (B = 32), row RHS, column output          : 0.0314439 ± 4.96616e-05
+blocked (B = 2), row RHS, row output              : 0.0588936 ± 0.00014004
+blocked (B = 4), row RHS, row output              : 0.0589017 ± 4.66834e-05
+blocked (B = 8), row RHS, row output              : 0.0576305 ± 8.78069e-05
+blocked (B = 16), row RHS, row output             : 0.0599425 ± 5.74156e-05
 
 $ ./build/test_float -r 1000 -c 100 -H 10000
 Results for 1000 x 100 x 10000
-naive, column RHS, column output                  : 0.100413 ± 4.02799e-05
-naive, column RHS, row output                     : 0.11251 ± 3.74806e-05
-naive, row RHS, column output                     : 0.615147 ± 0.000248069
-naive, row RHS, row output                        : 0.0613567 ± 0.000312934
-2 accumulators, column RHS, column output         : 0.137683 ± 0.000390171
-2 accumulators, column RHS, row output            : 0.132346 ± 0.000357842
-4 accumulators, column RHS, column output         : 0.132476 ± 0.000472351
-4 accumulators, column RHS, row output            : 0.129515 ± 3.1431e-05
-8 accumulators, column RHS, column output         : 0.145505 ± 6.7558e-05
-8 accumulators, column RHS, row output            : 0.140108 ± 0.000351626
-blocked (4), column RHS, column output            : 0.110259 ± 5.05944e-05
-blocked (8), column RHS, column output            : 0.0975857 ± 0.000409976
-blocked (16), column RHS, column output           : 0.0898299 ± 6.45457e-05
-blocked (32), column RHS, column output           : 0.0897473 ± 6.72026e-05
-blocked (4), column RHS, row output               : 0.0992287 ± 3.17899e-05
-blocked (8), column RHS, row output               : 0.0906332 ± 0.000377806
-blocked (16), column RHS, row output              : 0.0827582 ± 0.000386502
-blocked (32), column RHS, row output              : 0.0828078 ± 0.000396234
-blocked (4), row RHS, row output                  : 0.0782456 ± 4.91378e-05
-blocked (8), row RHS, row output                  : 0.0830548 ± 3.48512e-05
-blocked (16), row RHS, row output                 : 0.0891941 ± 5.12143e-05
-blocked (32), row RHS, row output                 : 0.0906412 ± 6.46352e-05
+naive, column RHS, column output                  : 0.103402 ± 0.000591671
+naive, column RHS, row output                     : 0.109042 ± 0.00034039
+naive, row RHS, column output                     : 0.680291 ± 0.00256334
+naive, row RHS, row output                        : 0.0624215 ± 0.000430773
+2 accumulators, column RHS, column output         : 0.121977 ± 0.000737886
+2 accumulators, column RHS, row output            : 0.124202 ± 0.000932276
+4 accumulators, column RHS, column output         : 0.134648 ± 0.000844813
+4 accumulators, column RHS, row output            : 0.134478 ± 0.00064767
+8 accumulators, column RHS, column output         : 0.140461 ± 0.000923256
+8 accumulators, column RHS, row output            : 0.142307 ± 0.00202228
+blocked (B = 2), column RHS, column output        : 0.115073 ± 0.00422314
+blocked (B = 4), column RHS, column output        : 0.087282 ± 0.000887459
+blocked (B = 8), column RHS, column output        : 0.0743906 ± 0.000383931
+blocked (B = 16), column RHS, column output       : 0.0673725 ± 0.00217689
+blocked (B = 2), column RHS, row output           : 0.110205 ± 0.000490405
+blocked (B = 4), column RHS, row output           : 0.0853586 ± 0.000288785
+blocked (B = 8), column RHS, row output           : 0.0760766 ± 0.000523352
+blocked (B = 16), column RHS, row output          : 0.0664922 ± 0.000684839
+blocked (B = 4), row RHS, column output           : 0.156809 ± 0.00408777
+blocked (B = 8), row RHS, column output           : 0.0958329 ± 0.00380633
+blocked (B = 16), row RHS, column output          : 0.060527 ± 0.0010359
+blocked (B = 32), row RHS, column output          : 0.0474259 ± 0.000982873
+blocked (B = 2), row RHS, row output              : 0.0628672 ± 0.00164571
+blocked (B = 4), row RHS, row output              : 0.0618025 ± 0.000721071
+blocked (B = 8), row RHS, row output              : 0.0796419 ± 0.000701721
+blocked (B = 16), row RHS, row output             : 0.0899807 ± 0.00023954
 
 $ ./build/test_float -r 1000 -c 10000 -H 100
 Results for 1000 x 10000 x 100
-naive, column RHS, column output                  : 0.0958055 ± 8.25959e-05
-naive, column RHS, row output                     : 0.0957094 ± 4.10407e-05
-naive, row RHS, column output                     : 0.199924 ± 0.00063591
-naive, row RHS, row output                        : 0.126355 ± 8.34428e-05
-2 accumulators, column RHS, column output         : 0.0558933 ± 2.49886e-05
-2 accumulators, column RHS, row output            : 0.0559309 ± 3.92536e-05
-4 accumulators, column RHS, column output         : 0.0470359 ± 3.3328e-05
-4 accumulators, column RHS, row output            : 0.0471921 ± 0.000170917
-8 accumulators, column RHS, column output         : 0.0476225 ± 0.000153346
-8 accumulators, column RHS, row output            : 0.0474701 ± 3.75329e-05
-blocked (4), column RHS, column output            : 0.050799 ± 2.75573e-05
-blocked (8), column RHS, column output            : 0.0597274 ± 5.85018e-05
-blocked (16), column RHS, column output           : 0.0667309 ± 8.16709e-05
-blocked (32), column RHS, column output           : 0.068235 ± 0.000130013
-blocked (4), column RHS, row output               : 0.0507034 ± 2.46412e-05
-blocked (8), column RHS, row output               : 0.0599317 ± 4.42333e-05
-blocked (16), column RHS, row output              : 0.0674253 ± 8.53503e-05
-blocked (32), column RHS, row output              : 0.0686396 ± 6.99214e-05
-blocked (4), row RHS, row output                  : 0.112901 ± 0.000206972
-blocked (8), row RHS, row output                  : 0.10058 ± 0.000194115
-blocked (16), row RHS, row output                 : 0.0964759 ± 0.000129282
-blocked (32), row RHS, row output                 : 0.0942743 ± 0.00017451
+naive, column RHS, column output                  : 0.0970194 ± 0.00102181
+naive, column RHS, row output                     : 0.096757 ± 0.000775361
+naive, row RHS, column output                     : 0.171078 ± 0.000282767
+naive, row RHS, row output                        : 0.131811 ± 0.00102691
+2 accumulators, column RHS, column output         : 0.0568552 ± 0.000793957
+2 accumulators, column RHS, row output            : 0.0561863 ± 0.000185234
+4 accumulators, column RHS, column output         : 0.0469599 ± 7.47189e-05
+4 accumulators, column RHS, row output            : 0.0469413 ± 0.000210769
+8 accumulators, column RHS, column output         : 0.0473048 ± 9.86116e-05
+8 accumulators, column RHS, row output            : 0.0473119 ± 0.000160209
+blocked (B = 2), column RHS, column output        : 0.048645 ± 0.000660848
+blocked (B = 4), column RHS, column output        : 0.0502121 ± 0.000173857
+blocked (B = 8), column RHS, column output        : 0.0579122 ± 0.00100614
+blocked (B = 16), column RHS, column output       : 0.0620852 ± 0.000579696
+blocked (B = 2), column RHS, row output           : 0.0475623 ± 3.49144e-05
+blocked (B = 4), column RHS, row output           : 0.0502915 ± 0.000227254
+blocked (B = 8), column RHS, row output           : 0.0579356 ± 0.000933086
+blocked (B = 16), column RHS, row output          : 0.0628348 ± 0.00101077
+blocked (B = 4), row RHS, column output           : 0.102879 ± 0.000212399
+blocked (B = 8), row RHS, column output           : 0.0689095 ± 0.000569149
+blocked (B = 16), row RHS, column output          : 0.0489801 ± 0.0012399
+blocked (B = 32), row RHS, column output          : 0.0395315 ± 0.000853605
+blocked (B = 2), row RHS, row output              : 0.103728 ± 0.000207474
+blocked (B = 4), row RHS, row output              : 0.0916972 ± 0.000534467
+blocked (B = 8), row RHS, row output              : 0.0795484 ± 0.00019749
+blocked (B = 16), row RHS, row output             : 0.0760228 ± 0.000546352
 
 $ ./build/test_float -r 100 -c 10000 -H 1000
 Results for 100 x 10000 x 1000
-naive, column RHS, column output                  : 0.10239 ± 9.29342e-05
-naive, column RHS, row output                     : 0.102929 ± 0.000800297
-naive, row RHS, column output                     : 0.190198 ± 0.003002
-naive, row RHS, row output                        : 0.0992077 ± 0.000617553
-2 accumulators, column RHS, column output         : 0.0637313 ± 6.49734e-05
-2 accumulators, column RHS, row output            : 0.0634595 ± 0.000148899
-4 accumulators, column RHS, column output         : 0.0563183 ± 0.00116798
-4 accumulators, column RHS, row output            : 0.0544894 ± 0.000207483
-8 accumulators, column RHS, column output         : 0.0559217 ± 0.000381063
-8 accumulators, column RHS, row output            : 0.0559359 ± 0.00124064
-blocked (4), column RHS, column output            : 0.0530792 ± 0.000179156
-blocked (8), column RHS, column output            : 0.0572189 ± 0.00013893
-blocked (16), column RHS, column output           : 0.0608619 ± 0.000175529
-blocked (32), column RHS, column output           : 0.0608395 ± 0.000109755
-blocked (4), column RHS, row output               : 0.0540602 ± 0.00117397
-blocked (8), column RHS, row output               : 0.0575566 ± 8.41688e-05
-blocked (16), column RHS, row output              : 0.0615489 ± 0.000298955
-blocked (32), column RHS, row output              : 0.0615831 ± 0.000243932
-blocked (4), row RHS, row output                  : 0.0929346 ± 0.00140628
-blocked (8), row RHS, row output                  : 0.0856732 ± 0.000306817
-blocked (16), row RHS, row output                 : 0.0826747 ± 8.3933e-05
-blocked (32), row RHS, row output                 : 0.0817792 ± 0.000483472
+naive, column RHS, column output                  : 0.10333 ± 0.000356871
+naive, column RHS, row output                     : 0.104481 ± 0.00147538
+naive, row RHS, column output                     : 0.176817 ± 0.000685472
+naive, row RHS, row output                        : 0.0993551 ± 0.000361996
+2 accumulators, column RHS, column output         : 0.063726 ± 8.0622e-05
+2 accumulators, column RHS, row output            : 0.0659513 ± 0.00221415
+4 accumulators, column RHS, column output         : 0.0563938 ± 0.00137642
+4 accumulators, column RHS, row output            : 0.0543498 ± 0.00037212
+8 accumulators, column RHS, column output         : 0.0568389 ± 0.000945001
+8 accumulators, column RHS, row output            : 0.0603894 ± 0.00419283
+blocked (B = 2), column RHS, column output        : 0.0554934 ± 0.00358938
+blocked (B = 4), column RHS, column output        : 0.0544192 ± 0.00159569
+blocked (B = 8), column RHS, column output        : 0.0578591 ± 8.85873e-05
+blocked (B = 16), column RHS, column output       : 0.0616368 ± 0.0008792
+blocked (B = 2), column RHS, row output           : 0.0525777 ± 0.000566421
+blocked (B = 4), column RHS, row output           : 0.0530893 ± 0.000260208
+blocked (B = 8), column RHS, row output           : 0.0578554 ± 0.000117874
+blocked (B = 16), column RHS, row output          : 0.0631518 ± 0.00115664
+blocked (B = 4), row RHS, column output           : 0.0824344 ± 0.00432385
+blocked (B = 8), row RHS, column output           : 0.0524671 ± 0.001873
+blocked (B = 16), row RHS, column output          : 0.0369001 ± 0.000252406
+blocked (B = 32), row RHS, column output          : 0.0312814 ± 0.000815846
+blocked (B = 2), row RHS, row output              : 0.0834662 ± 0.00252013
+blocked (B = 4), row RHS, row output              : 0.0706718 ± 0.000229354
+blocked (B = 8), row RHS, row output              : 0.0663548 ± 0.00213634
+blocked (B = 16), row RHS, row output             : 0.0634923 ± 0.00149477
 
 $ ./build/test_float -r 100 -c 1000 -H 10000
 Results for 100 x 1000 x 10000
-naive, column RHS, column output                  : 0.10167 ± 0.00245262
-naive, column RHS, row output                     : 0.101627 ± 0.00256919
-naive, row RHS, column output                     : 0.312681 ± 0.00206008
-naive, row RHS, row output                        : 0.068918 ± 0.000197113
-2 accumulators, column RHS, column output         : 0.0735944 ± 0.000176469
-2 accumulators, column RHS, row output            : 0.068505 ± 0.000181076
-4 accumulators, column RHS, column output         : 0.0621546 ± 0.00209164
-4 accumulators, column RHS, row output            : 0.0552213 ± 0.000215034
-8 accumulators, column RHS, column output         : 0.0627242 ± 0.00018245
-8 accumulators, column RHS, row output            : 0.0574877 ± 0.000281717
-blocked (4), column RHS, column output            : 0.0497174 ± 0.000420343
-blocked (8), column RHS, column output            : 0.0450094 ± 7.15588e-05
-blocked (16), column RHS, column output           : 0.0472924 ± 0.000105056
-blocked (32), column RHS, column output           : 0.0474575 ± 0.000168646
-blocked (4), column RHS, row output               : 0.0436621 ± 0.000184923
-blocked (8), column RHS, row output               : 0.043019 ± 0.000122343
-blocked (16), column RHS, row output              : 0.0471367 ± 0.000114752
-blocked (32), column RHS, row output              : 0.0484018 ± 0.000181158
-blocked (4), row RHS, row output                  : 0.0798827 ± 0.000232124
-blocked (8), row RHS, row output                  : 0.0826787 ± 0.000231733
-blocked (16), row RHS, row output                 : 0.0868478 ± 0.000109948
-blocked (32), row RHS, row output                 : 0.0870259 ± 0.000132196
+naive, column RHS, column output                  : 0.101929 ± 0.00112494
+naive, column RHS, row output                     : 0.0968838 ± 9.89073e-05
+naive, row RHS, column output                     : 0.312543 ± 0.00319355
+naive, row RHS, row output                        : 0.069419 ± 0.000418902
+2 accumulators, column RHS, column output         : 0.071648 ± 0.000115074
+2 accumulators, column RHS, row output            : 0.0676612 ± 0.000162107
+4 accumulators, column RHS, column output         : 0.0601939 ± 0.000166274
+4 accumulators, column RHS, row output            : 0.0574829 ± 0.00170087
+8 accumulators, column RHS, column output         : 0.0614036 ± 0.000148623
+8 accumulators, column RHS, row output            : 0.0569126 ± 0.000145065
+blocked (B = 2), column RHS, column output        : 0.0491185 ± 0.000110913
+blocked (B = 4), column RHS, column output        : 0.0428849 ± 0.000135381
+blocked (B = 8), column RHS, column output        : 0.0415226 ± 0.000207746
+blocked (B = 16), column RHS, column output       : 0.0449605 ± 0.000190048
+blocked (B = 2), column RHS, row output           : 0.0476799 ± 8.94829e-05
+blocked (B = 4), column RHS, row output           : 0.0417056 ± 0.000154823
+blocked (B = 8), column RHS, row output           : 0.0412175 ± 0.000138052
+blocked (B = 16), column RHS, row output          : 0.0448308 ± 8.71383e-05
+blocked (B = 4), row RHS, column output           : 0.105653 ± 0.00012674
+blocked (B = 8), row RHS, column output           : 0.0644307 ± 9.74212e-05
+blocked (B = 16), row RHS, column output          : 0.0457139 ± 0.000117872
+blocked (B = 32), row RHS, column output          : 0.0350888 ± 9.0585e-05
+blocked (B = 2), row RHS, row output              : 0.0656247 ± 0.000301986
+blocked (B = 4), row RHS, row output              : 0.067279 ± 0.000105812
+blocked (B = 8), row RHS, row output              : 0.0785529 ± 0.0002544
+blocked (B = 16), row RHS, row output             : 0.0865626 ± 0.000245619
 ```
 
 ## Conclusion
@@ -445,9 +509,10 @@ Performance is pretty good for a row-major RHS matrix with row-major output.
 I find this interesting because a sparse vector multiply-add is not easily vectorizable.
 The values of the indices are not known to the compiler, so it can't just execute the instructions in parallel as it can't be sure that the indices don't overlap.
 
-Strangely, blocking is sometimes helpful and sometimes detrimental.
+Blocking is consistently helpful for a row-major RHS matrix with column-major output.
+This is because it eliminates the need for non-contiguous writes in the innermost loop.
+$B = 16$ is again the sweet spot that gets most of the benefits without requiring too much memory usage.
+
+For the other configurations, blocking is sometimes helpful and sometimes detrimental.
 In general, it's a pessimisation when the extent of the sparse vector is large but an improvement when it's short, and this difference is amplified by increasing $B$.
-This is not explained by looping overhead as $C$ is fixed for all $B$ so the number of loop restarts should be constant.
-My guess is that we're misunderstanding the cache behavior of the accompanying dense vectors.
-Perhaps when the extent is short, the entire block of dense vectors can persist in some level of the cache hierarchy for re-use with the next sparse vector;
-but for larger extents, we need to load in the next part of the dense vectors, and these may have been evicted from the cache if $B$ is too large.
+This is consistent with whether the block of dense vectors can be held in cache for quick re-use with the next sparse vector.

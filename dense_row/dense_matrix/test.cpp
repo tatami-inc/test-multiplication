@@ -24,9 +24,6 @@ void blocked_mult_with_right_column_to_output_column(
     std::vector<std::vector<FLOAT> >& product,
     std::size_t block_size
 ) {
-    // Assuming that we can safely fit around 1000 elements in the cache.
-    // Technically, the cache size is in bytes and the "ideal" number of elements would depend on sizeof(FLOAT).
-    // However, we'll just keep it simple here, given that this cache size (in bytes or elements) is just a guess anyway. 
     const std::size_t line_size = 1024 / block_size;
     std::size_t r = 0;
     while (r < NR) {
@@ -79,7 +76,7 @@ void blocked_mult_with_right_column_to_output_row(
     std::vector<std::vector<FLOAT> >& product,
     std::size_t block_size
 ) {
-    const std::size_t line_size = 1024 / block_size; // see logic above.
+    const std::size_t line_size = 1024 / block_size;
     std::size_t r = 0;
     while (r < NR) {
         const std::size_t rend = r + std::min(block_size, NR - r);
@@ -131,31 +128,51 @@ void blocked_mult_with_right_row_to_output_column(
     std::vector<std::vector<FLOAT> >& product,
     std::size_t block_size
 ) {
-    const std::size_t line_size = 1024 / block_size; // see logic above.
+    const std::size_t line_size = 1024 / block_size;
     std::size_t r = 0;
+    std::vector<std::vector<FLOAT> > buffer(block_size);
+    for (auto& b : buffer) {
+        b.resize(NRHS);
+    }
+
     while (r < NR) {
         const std::size_t rend = r + std::min(block_size, NR - r);
         std::size_t c = 0;
         while (c < NC) { 
             const std::size_t cend = c + std::min(block_size, NC - c);
             std::size_t h = 0;
-            while (h < NRHS) { // jump by block to go to the right of the RHS rows as this is most contiguous.
+            while (h < NRHS) {
                 const std::size_t hend = h + std::min(line_size, NRHS - h);
-
                 for (auto rcopy = r; rcopy < rend; ++rcopy) {
                     const auto& matrow = matrix[rcopy];
+                    auto& out = buffer[rcopy - r];
                     for (auto ccopy = c; ccopy < cend; ++ccopy) {
                         const auto mult = matrow[ccopy];
                         const auto& right = rhs[ccopy];
-                        for (auto hcopy = h; hcopy < hend; ++hcopy) { // writes are not contiguous... don't think there's a better way to do this.
-                            product[hcopy][rcopy] += mult * right[hcopy];
+                        for (std::size_t hcopy = h; hcopy < hend; ++hcopy) {
+                            out[hcopy] += mult * right[hcopy];
                         }
                     }
                 }
-
                 h = hend;
             }
             c = cend;
+        }
+
+        // Perform a blocked transposition to the output columns.
+        std::size_t h = 0;
+        while (h < NRHS) {
+            const std::size_t hend = h + std::min(line_size, NRHS - h);
+            for (auto rcopy = r; rcopy < rend; ++rcopy) {
+                auto& out = buffer[rcopy - r];
+                for (std::size_t hcopy = h; hcopy < hend; ++hcopy) {
+                    product[hcopy][rcopy] = out[hcopy];
+                }
+            }
+            h = hend;
+        }
+        for (auto& b : buffer) {
+            std::fill(b.begin(), b.end(), 0);
         }
         r = rend;
     }
@@ -202,7 +219,7 @@ void blocked_mult_with_right_row_to_output_row(
 }
 
 int main(int argc, char ** argv) {
-    CLI::App app{"Dense row matrix x dense matrix performance tests"};
+    CLI::App app{"Timings for dense row LHS, dense matrix RHS"};
     std::size_t NR;
     app.add_option("-r,--row", NR, "Number of matrix rows")->default_val(10000);
     std::size_t NC;
@@ -277,13 +294,18 @@ int main(int argc, char ** argv) {
     auto naive_rr_co = preallocate_column_output();
     names.emplace_back("naive, row RHS, column output");
     funs.emplace_back([&]() -> FLOAT {
+        std::vector<FLOAT> buffer(NRHS);
         for (std::size_t r = 0; r < NR; ++r) {
             for (std::size_t c = 0; c < NC; ++c) {
                 const auto mult = matrix[r][c];
                 const auto& right = rhs_by_row[c];
                 for (std::size_t h = 0; h < NRHS; ++h) { // ugh, lots of non-continguous writes.
-                    naive_rr_co[h][r] += right[h] * mult;
+                    buffer[h] += right[h] * mult;
                 }
+            }
+            for (std::size_t h = 0; h < NRHS; ++h) {
+                naive_rr_co[h][r] = buffer[h];
+                buffer[h] = 0;
             }
         }
         return naive_rr_co.front().front() + naive_rr_co.front().back() + naive_rr_co.back().front() + naive_rr_co.back().back();
@@ -322,28 +344,28 @@ int main(int argc, char ** argv) {
 
     // Blocked multiplication (row RHS, column output).
     auto blocked_rr_co_4 = preallocate_column_output();
-    names.emplace_back("blocked (4), row RHS, column output");
+    names.emplace_back("blocked (B = 4), row RHS, column output");
     funs.emplace_back([&]() -> FLOAT {
         blocked_mult_with_right_row_to_output_column(NR, NC, matrix, NRHS, rhs_by_row, blocked_rr_co_4, 4);
         return blocked_rr_co_4.front().front() + blocked_rr_co_4.front().back() + blocked_rr_co_4.back().front() + blocked_rr_co_4.back().back();
     });
 
     auto blocked_rr_co_8 = preallocate_column_output();
-    names.emplace_back("blocked (8), row RHS, column output");
+    names.emplace_back("blocked (B = 8), row RHS, column output");
     funs.emplace_back([&]() -> FLOAT {
         blocked_mult_with_right_row_to_output_column(NR, NC, matrix, NRHS, rhs_by_row, blocked_rr_co_8, 8);
         return blocked_rr_co_8.front().front() + blocked_rr_co_8.front().back() + blocked_rr_co_8.back().front() + blocked_rr_co_8.back().back();
     });
 
     auto blocked_rr_co_16 = preallocate_column_output();
-    names.emplace_back("blocked (16), row RHS, column output");
+    names.emplace_back("blocked (B = 16), row RHS, column output");
     funs.emplace_back([&]() -> FLOAT {
         blocked_mult_with_right_row_to_output_column(NR, NC, matrix, NRHS, rhs_by_row, blocked_rr_co_16, 16);
         return blocked_rr_co_16.front().front() + blocked_rr_co_16.front().back() + blocked_rr_co_16.back().front() + blocked_rr_co_16.back().back();
     });
 
     auto blocked_rr_co_32 = preallocate_column_output();
-    names.emplace_back("blocked (32), row RHS, column output");
+    names.emplace_back("blocked (B = 32), row RHS, column output");
     funs.emplace_back([&]() -> FLOAT {
         blocked_mult_with_right_row_to_output_column(NR, NC, matrix, NRHS, rhs_by_row, blocked_rr_co_32, 32);
         return blocked_rr_co_32.front().front() + blocked_rr_co_32.front().back() + blocked_rr_co_32.back().front() + blocked_rr_co_32.back().back();
@@ -351,28 +373,28 @@ int main(int argc, char ** argv) {
 
     // Blocked multiplication (row RHS, row output).
     auto blocked_rr_ro_4 = preallocate_row_output();
-    names.emplace_back("blocked (4), row RHS, row output");
+    names.emplace_back("blocked (B = 4), row RHS, row output");
     funs.emplace_back([&]() -> FLOAT {
         blocked_mult_with_right_row_to_output_row(NR, NC, matrix, NRHS, rhs_by_row, blocked_rr_ro_4, 4);
         return blocked_rr_ro_4.front().front() + blocked_rr_ro_4.front().back() + blocked_rr_ro_4.back().front() + blocked_rr_ro_4.back().back();
     });
 
     auto blocked_rr_ro_8 = preallocate_row_output();
-    names.emplace_back("blocked (8), row RHS, row output");
+    names.emplace_back("blocked (B = 8), row RHS, row output");
     funs.emplace_back([&]() -> FLOAT {
         blocked_mult_with_right_row_to_output_row(NR, NC, matrix, NRHS, rhs_by_row, blocked_rr_ro_8, 8);
         return blocked_rr_ro_8.front().front() + blocked_rr_ro_8.front().back() + blocked_rr_ro_8.back().front() + blocked_rr_ro_8.back().back();
     });
 
     auto blocked_rr_ro_16 = preallocate_row_output();
-    names.emplace_back("blocked (16), row RHS, row output");
+    names.emplace_back("blocked (B = 16), row RHS, row output");
     funs.emplace_back([&]() -> FLOAT {
         blocked_mult_with_right_row_to_output_row(NR, NC, matrix, NRHS, rhs_by_row, blocked_rr_ro_16, 16);
         return blocked_rr_ro_16.front().front() + blocked_rr_ro_16.front().back() + blocked_rr_ro_16.back().front() + blocked_rr_ro_16.back().back();
     });
 
     auto blocked_rr_ro_32 = preallocate_row_output();
-    names.emplace_back("blocked (32), row RHS, row output");
+    names.emplace_back("blocked (B = 32), row RHS, row output");
     funs.emplace_back([&]() -> FLOAT {
         blocked_mult_with_right_row_to_output_row(NR, NC, matrix, NRHS, rhs_by_row, blocked_rr_ro_32, 32);
         return blocked_rr_ro_32.front().front() + blocked_rr_ro_32.front().back() + blocked_rr_ro_32.back().front() + blocked_rr_ro_32.back().back();
@@ -420,8 +442,9 @@ int main(int argc, char ** argv) {
     const std::size_t num_methods = names.size();
     for (std::size_t m = 0; m < num_methods; ++m) {
         auto name = names[m];
-        if (name.size() < 40) {
-            name.insert(name.end(), 40 - name.size(), ' ');
+        constexpr std::size_t pad_to = 44;
+        if (name.size() < pad_to) {
+            name.insert(name.end(), pad_to - name.size(), ' ');
         }
         std::cout << name << ": " << res[m].mean.count() << " ± " << res[m].sd.count() / std::sqrt(res[m].times.size()) << std::endl;
     }

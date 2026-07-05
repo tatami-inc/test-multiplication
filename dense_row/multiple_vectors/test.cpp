@@ -70,7 +70,7 @@ void blocked_mult(
 }
 
 int main(int argc, char ** argv) {
-    CLI::App app{"Dense row matrix x multiple vectors performance tests"};
+    CLI::App app{"Timings for dense row LHS, multiple vectors RHS"};
     std::size_t NR;
     app.add_option("-r,--row", NR, "Number of matrix rows")->default_val(10000);
     std::size_t NC;
@@ -143,7 +143,7 @@ int main(int argc, char ** argv) {
         }
         return naive_acc_2.front().front() + naive_acc_2.front().back() + naive_acc_2.back().front() + naive_acc_2.back().back();
     });
-    names.push_back("naive, two accumulators");
+    names.push_back("naive, 2 accumulators");
 
     auto naive_acc_4 = preallocate_output();
     funs.emplace_back([&]() -> FLOAT {
@@ -154,7 +154,7 @@ int main(int argc, char ** argv) {
         }
         return naive_acc_4.front().front() + naive_acc_4.front().back() + naive_acc_4.back().front() + naive_acc_4.back().back();
     });
-    names.push_back("naive, four accumulators");
+    names.push_back("naive, 4 accumulators");
 
     auto naive_acc_8 = preallocate_output();
     funs.emplace_back([&]() -> FLOAT {
@@ -165,7 +165,7 @@ int main(int argc, char ** argv) {
         }
         return naive_acc_8.front().front() + naive_acc_8.front().back() + naive_acc_8.back().front() + naive_acc_8.back().back();
     });
-    names.push_back("naive, eight accumulators");
+    names.push_back("naive, 8 accumulators");
 
     // Blocked multiplication.
     auto blocked_4 = preallocate_output();
@@ -173,28 +173,28 @@ int main(int argc, char ** argv) {
         blocked_mult<1>(NR, NC, matrix, NRHS, rhs, blocked_4, 4);
         return blocked_4.front().front() + blocked_4.front().back() + blocked_4.back().front() + blocked_4.back().back();
     });
-    names.push_back("blocked 4");
+    names.push_back("blocked (B = 4)");
 
     auto blocked_8 = preallocate_output();
     funs.emplace_back([&]() -> FLOAT {
         blocked_mult<1>(NR, NC, matrix, NRHS, rhs, blocked_8, 8);
         return blocked_8.front().front() + blocked_8.front().back() + blocked_8.back().front() + blocked_8.back().back();
     });
-    names.push_back("blocked 8");
+    names.push_back("blocked (B = 8)");
 
     auto blocked_16 = preallocate_output();
     funs.emplace_back([&]() -> FLOAT {
         blocked_mult<1>(NR, NC, matrix, NRHS, rhs, blocked_16, 16);
         return blocked_16.front().front() + blocked_16.front().back() + blocked_16.back().front() + blocked_16.back().back();
     });
-    names.push_back("blocked 16");
+    names.push_back("blocked (B = 16)");
 
     auto blocked_32 = preallocate_output();
     funs.emplace_back([&]() -> FLOAT {
         blocked_mult<1>(NR, NC, matrix, NRHS, rhs, blocked_32, 32);
         return blocked_32.front().front() + blocked_32.front().back() + blocked_32.back().front() + blocked_32.back().back();
     });
-    names.push_back("blocked 32");
+    names.push_back("blocked (B = 32)");
 
     // Blocked multiplication with multiple accumulators.
     auto ma_blocked_4 = preallocate_output();
@@ -202,28 +202,28 @@ int main(int argc, char ** argv) {
         blocked_mult<4>(NR, NC, matrix, NRHS, rhs, ma_blocked_4, 4);
         return ma_blocked_4.front().front() + ma_blocked_4.front().back() + ma_blocked_4.back().front() + ma_blocked_4.back().back();
     });
-    names.push_back("blocked 4, four accumulators");
+    names.push_back("blocked (B = 4), 4 accumulators");
 
     auto ma_blocked_8 = preallocate_output();
     funs.emplace_back([&]() -> FLOAT {
         blocked_mult<4>(NR, NC, matrix, NRHS, rhs, ma_blocked_8, 8);
         return ma_blocked_8.front().front() + ma_blocked_8.front().back() + ma_blocked_8.back().front() + ma_blocked_8.back().back();
     });
-    names.push_back("blocked 8, four accumulators");
+    names.push_back("blocked (B = 8), 4 accumulators");
 
     auto ma_blocked_16 = preallocate_output();
     funs.emplace_back([&]() -> FLOAT {
         blocked_mult<4>(NR, NC, matrix, NRHS, rhs, ma_blocked_16, 16);
         return ma_blocked_16.front().front() + ma_blocked_16.front().back() + ma_blocked_16.back().front() + ma_blocked_16.back().back();
     });
-    names.push_back("blocked 16, four accumulators");
+    names.push_back("blocked (B = 16), 4 accumulators");
 
     auto ma_blocked_32 = preallocate_output();
     funs.emplace_back([&]() -> FLOAT {
         blocked_mult<4>(NR, NC, matrix, NRHS, rhs, ma_blocked_32, 32);
         return ma_blocked_32.front().front() + ma_blocked_32.front().back() + ma_blocked_32.back().front() + ma_blocked_32.back().back();
     });
-    names.push_back("blocked 32, four accumulators");
+    names.push_back("blocked (B = 32), 4 accumulators");
 
     // Performing the iterations.
     eztimer::Options opt;

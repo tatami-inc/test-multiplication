@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.14)
 project(
     drsm
     VERSION 1.0.0
-    DESCRIPTION "Dense row matrix, sparse matrix"
+    DESCRIPTION "Dense row LHS, sparse matrix RHS"
     LANGUAGES CXX
 )
 
