@@ -61,7 +61,7 @@ void blocked_mult(
 }
 
 int main(int argc, char ** argv) {
-    CLI::App app{"Timings for dense row LHS, single vector RHS"};
+    CLI::App app{"Timings for dense row-major LHS, single vector RHS"};
     std::size_t NR;
     app.add_option("-r,--row", NR, "Number of matrix rows")->default_val(10000);
     std::size_t NC;

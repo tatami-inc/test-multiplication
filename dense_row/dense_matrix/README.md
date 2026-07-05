@@ -14,7 +14,7 @@ Each multiply-add involves contiguous memory and should be highly amenable to au
 If the output is column-major, the process is much the same except that we use a temporary buffer to represent output row $i$.
 The $h$-th element of this buffer will be assigned to the $i$-th element from the $h$-output column once all RHS rows have been traversed.
 
-### Blocked row-major RHS
+### Blocked row-major RHS, row-major output
 
 We consider a $B$-by-$B$ LHS submatrix with $B$-by-$C$ RHS and output submatrices.
 In this set of submatrices, each LHS column corresponds to an RHS row, each LHS row corresponds to an output row, and each RHS column corresponds to an output column.
@@ -22,16 +22,16 @@ In this set of submatrices, each LHS column corresponds to an RHS row, each LHS 
 For each combination of LHS row $i$ and RHS row $j$ in these submatrices,
 we perform a vector multipy-add of the current block of the $j$-th RHS row to the corresponding block of the $i$-th output row,
 using the LHS matrix entry at $(i, j)$ as the scaling factor.
-We repeat this with the submatrices containing the same $B$ rows and next $C$ columns of the RHS/output matrices, to take advantage of fast access to contiguous memory.
-Once all RHS columns are traversed for these $B$ RHS rows, we repeat the above process with the next $B$ RHS rows. 
-Once all LHS columns/RHS rows are traversed, we repeat with the next $B$ LHS rows until all rows are traversed.
+We repeat this for all valid sets of submatrices until the full matrix product is computed.
+When choosing the next set of submatrices, the RHS/output columns are the fastest-changing dimension while the LHS rows are the slowest.
 
 The hope is that these submatrices are small enough to keep in cache for fast access.
 We test a range of different values for the $B$ given a fixed value for $BC = 1024$. 
 Check out [`general/README.md`](../../general/README.md) for more details.
 
-The above description assumes that the output row $i$ exists contiguously in memory, i.e., the output is row-major.
-If the output is instead column-major, the process is much the same except that we use temporary buffers to represent each of the $B$ output rows in each block.
+### Blocked row-major RHS, column-major output
+
+The process is the same as for row-major output, except that we use temporary buffers to represent each of the $B$ output rows in each block.
 After processing each block of $B$ LHS rows, we transpose the contents of the temporary buffers into the output columns.
 We don't have to worry much about extra cache usage as none of the submatrices will be re-used anyway.
 

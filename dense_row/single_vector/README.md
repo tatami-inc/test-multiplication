@@ -16,17 +16,18 @@ Check out the explanation in [`general/README.md`](../../general/README.md).
 
 ### Blocking
 
-We consider a $B$-by-$C$ LHS submatrix and a $C$-by-1 RHS submatrix (i.e., just a part of the RHS vector).
-For each LHS row $i$ in this submatrix, we compute the partial dot product with the RHS submatrix.
-We repeat this for the next submatrix (containing the next $C$ LHS columns for the same $B$ rows) until all LHS columns are traversed, 
-at which point we add the partial products from all submatrices to obtain the final dot product for the $B$ LHS rows. 
-Then, we proceed to the next block of $B$ LHS rows until all rows of the LHS matrix have been traversed.
+We consider a $B$-by-$C$ LHS submatrix, a length-$C$ RHS slice and a length-$B$ output slice.
+In this set of submatrices/slices, each LHS column corresponds to an RHS entry, and each LHS row corresponds to an output entry.
 
-The idea is to keep the parts of the RHS vector in cache for each block of $B$ rows, such that we don't have to reload it for every single row.
+For each row $i$ in the LHS submatrix, we compute its partial dot product with each column $j$ of the RHS submatrix and store it in the $i$-th entry of the output slice.
+We repeat this for all valid sets of submatrices/slices until the full matrix product is computed.
+When choosing the next set of submatrices/slices, the LHS columns are the fastest-changing dimension while the LHS rows are the slowest.
+
+The idea is to keep the RHS vector in cache for each block of $B$ rows, such that we don't have to reload it for every single row.
 We test a range of different values for the $B$ given a fixed value for $BC = 1024$, i.e., a thousand elements in the cache at once.
+Check out [`general/README.md`](../../general/README.md) for more details.
 (Technically, our RHS "submatrix" only has one column so we could reasonably increase $BC$ while still fitting in a typical L1 cache.
 But for simplicity's sake, we will stick with the limit used in the other tests.)
-Check out [`general/README.md`](../../general/README.md) for more details.
 
 ### Blocking with multiple accumulators
 

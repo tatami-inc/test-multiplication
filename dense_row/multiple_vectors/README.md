@@ -23,8 +23,8 @@ In this set of submatrices, each LHS column corresponds to an RHS row, each LHS 
 We compute the product of the LHS and RHS submatrices and store the result in the output matrix.
 We move onto the submatrices containing the next $C$ LHS columns/RHS rows for the same $B$ LHS rows/RHS columns, and add the result to the output matrix.
 Once all LHS columns/RHS rows are traversed, the output matrix contains the final dot product for each of the $B$ LHS rows/RHS columns in the submatrices.
-We repeat this process with the next $B$ RHS columns until all RHS columns are traversed.
-Then, we move onto the next $B$ LHS rows until all LHS rows are traversed.
+We repeat this for all valid sets of submatrices until the full matrix product is computed.
+When choosing the next set of submatrices, the LHS columns/RHS rows are the fastest-changing dimension while the RHS/output rows are the slowest.
 
 The hope is that these submatrices are small enough to keep in cache for fast access.
 We test a range of different values for the $B$ given a fixed value for $BC = 1024$. 

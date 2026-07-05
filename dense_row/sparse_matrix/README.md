@@ -32,7 +32,8 @@ this may be more expensive than the cachen-unfriendly accesses to multiple outpu
 We'll use the framework described in the "Blocking to cache many dense vectors" section in [`general/README.md`](../../general/README.md). 
 
 We load in a block of $B$ LHS rows.
-For each RHS column $h$, we compute the partial dot product zeros with each LHS row $i$ in the block, storing the result in entry $(i, h)$ of the output matrix.
+For each LHS block, we iterate over all RHS columns.
+For each RHS column $h$, we compute its dot product with each LHS row $i$ in the block, storing the result in entry $(i, h)$ of the output matrix.
 Once all RHS columns are processed, we repeat this process with the next block of $B$ LHS rows.
 
 The idea is to keep the RHS column in cache, to re-use across LHS rows in the block; and to keep the block of LHS rows in cache, to re-use with the next RHS column. 
@@ -43,7 +44,7 @@ For a valid comparison with the other strategies, we use 4 accumulators to compu
 We'll use the framework described in the "Blocking to cache many dense vectors" section in [`general/README.md`](../../general/README.md). 
 
 We load in a block of $B$ LHS rows.
-We first load in a "primary" block of $B$ LHS rows.
+For each LHS block, we iterate over all RHS rows.
 For each RHS row $h$, we perform a sparse vector multiply-add to the $i$-th output row, using the $h$-th element of the $i$-th LHS row as the scaling factor.
 Once all RHS rows are processed, we repeat this process with the next block of $B$ LHS rows.
 
@@ -53,7 +54,7 @@ Again, we try multiple values of $B$ with the constraint that $BC = 256$.
 ### Blocking row-major RHS, row-major output
 
 We first load in a block of $B$ LHS rows.
-We then iterate over all RHS rows.
+For each LHS block, we iterate over all RHS rows.
 For each RHS row $h$, we extract the corresponding column of the LHS row block into a contiguous buffer.
 We then iterate over the structural non-zeros of the RHS row $h$.
 For each non-zero at RHS column $j$ with value $x$, we perform a vector multiply-add of the column buffer to the corresponding block of the $j$-th output column,
