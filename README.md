@@ -2,8 +2,8 @@
 
 This repository contains performance testing for different matrix multiplication strategies, 
 used to inform the implementation of the various `multiply()` overloads in [**tatami_mult**](https://github.com/tatami-inc/tatami_mult).
-Check out some of the general principles in [`general/README.md`](general/README.md`),
-as well as each subdirectory's `README.md` for specific commentary on each multiplication strategy:
+
+Each subdirectory's `README.md` contains specific commentary on each multiplication strategy:
 
 - [Dense row-major LHS, single vector RHS](dense_row/single_vector)
 - [Dense row-major LHS, multiple vectors RHS](dense_row/multiple_vectors)
@@ -21,3 +21,6 @@ as well as each subdirectory's `README.md` for specific commentary on each multi
 - [Sparse column-major LHS, multiple vectors RHS](sparse_column/multiple_vectors)
 - [Sparse column-major LHS, dense matrix RHS](sparse_column/sparse_matrix)
 - [Sparse column-major LHS, dense matrix RHS](sparse_column/sparse_matrix)
+
+Also check out some of general comments in [`general/README.md`](general/README.md`).
+
