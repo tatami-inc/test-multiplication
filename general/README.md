@@ -62,7 +62,8 @@ However, we don't want to use too many accumulators as this could cause register
 
 The calculation of a dot product between a sparse and dense vector is fairly straightforward.
 We just iterate over the structural non-zero elements of the sparse vector, retrieve the value of the dense vector at each position, and add its product with the non-zero's value.
-This can be used with multiple accumulators for improved pipelining, though effective auto-vectorization relies on the availability of efficient gather instructions.
+This can be used with multiple accumulators for improved pipelining -
+and possibly auto-vectorization as well, though this relies on the availability of efficient gather instructions.
 
 ```cpp
 // Two accumulators, similar to what Eigen does.

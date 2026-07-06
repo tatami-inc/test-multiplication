@@ -5,6 +5,17 @@
 #include <array>
 #include <numeric>
 
+// Force unrolling to avoid relying on optimizer decisions.
+// For example, older versions of GCC won't unroll at -O2, so we need to do it ourselves if we don't want a run-time nested loop.
+// Fortunately, compilers will stil auto-vectorize a manually-unrolled loop, so this won't be a pessimisation in the long term.
+template<std::size_t num_acc_, std::size_t counter_ = 0, class ValueIterator_, class IndexIterator_, class Dense_>
+void manual_dense_sparse_dot_unroller(const std::size_t idx, ValueIterator_ vptr, IndexIterator_ iptr, const Dense_& dense, std::array<FLOAT, num_acc_>& dots) {
+    dots[counter_] += dense[*(iptr + idx + counter_)] * *(vptr + idx + counter_);
+    if constexpr(counter_ + 1 < num_acc_) {
+        manual_dense_sparse_dot_unroller<num_acc_, counter_ + 1>(idx, vptr, iptr, dense, dots);
+    }
+}
+
 template<int num_acc_, class ValueIterator_, class IndexIterator_, class Dense_>
 FLOAT dense_sparse_dot_product(const std::size_t num_non_zeros, ValueIterator_ vptr, IndexIterator_ iptr, const Dense_& dense, FLOAT initial) {
     if constexpr(num_acc_ == 1) {
@@ -20,10 +31,7 @@ FLOAT dense_sparse_dot_product(const std::size_t num_non_zeros, ValueIterator_ v
         const std::size_t remainder = num_non_zeros % num_acc_;
 
         for (std::size_t c = 0; c < cycles; ++c) {
-            for (std::size_t i = 0; i < num_acc_; ++i) {
-                const auto idx = c * num_acc_ + i;
-                dots[i] += dense[*(iptr + idx)] * *(vptr + idx);
-            }
+            manual_dense_sparse_dot_unroller(c * num_acc_, vptr, iptr, dense, dots);
         }
 
         FLOAT extras = initial;

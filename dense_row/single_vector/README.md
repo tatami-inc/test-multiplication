@@ -147,9 +147,36 @@ blocked (B = 16), 4 accumulators        : 0.00329408 ± 2.32918e-05
 blocked (B = 32), 4 accumulators        : 0.00369884 ± 3.25145e-05
 ```
 
+## Results at lower optimizations 
+
+The use of multiple accumulators is particularly sensitive to compiler optimizations.
+Older versions of GCC (pre-14?) do not perform much auto-vectorization at `-O2`, which reduces the benefit offered by multiple accumulators.
+To test this, we can compile with a lower optimization level in GCC 11.4.0 as shown below.
+
+```console
+$ g++ --std=c++17 -O2 test.cpp \
+> -Ibuild/_deps/cli11-src/include -Ibuild/_deps/eztimer-src/include \
+> -o foobar
+$ ./foobar
+Results for 10000 x 5000
+naive                                   : 0.0544265 ± 8.67715e-05
+naive, 2 accumulators                   : 0.0323193 ± 6.68123e-05
+naive, 4 accumulators                   : 0.0318801 ± 5.36408e-05
+naive, 8 accumulators                   : 0.0331797 ± 5.33437e-05
+blocked (B = 4)                         : 0.0518102 ± 9.67283e-05
+blocked (B = 8)                         : 0.0480408 ± 0.000106501
+blocked (B = 16)                        : 0.0417925 ± 3.36548e-05
+blocked (B = 32)                        : 0.0406065 ± 6.97695e-05
+blocked (B = 4), 4 accumulators         : 0.0335378 ± 5.57759e-05
+blocked (B = 8), 4 accumulators         : 0.0355132 ± 4.23856e-05
+blocked (B = 16), 4 accumulators        : 0.0365621 ± 6.38568e-05
+blocked (B = 32), 4 accumulators        : 0.0353689 ± 6.51658e-05
+```
+
 ## Conclusion
 
 Use of multiple accumulators helps a lot, presumably because it improves parallelization of instructions within each CPU.
+This is still the case at lower optimization levels where the absence of autovectorization results in only a small degradation in performance.
 
 Blocking gives a moderate speed-up with $B = 16$.
 This is probably due to improved cache efficiency, as the RHS vector does not need to be constantly reloaded per LHS row.
@@ -160,3 +187,4 @@ This result is helpful as it means that we can get good performance without bloc
 Specifically, blocking is annoying as we need to allocate more space to load multiple rows from a **tatami** matrix.
 This would force us to make judgement calls on the speed-memory trade-off.
 Now, we can just load a single row and use the naive approach with multiple accumulators.
+

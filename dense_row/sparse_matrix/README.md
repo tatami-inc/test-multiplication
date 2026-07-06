@@ -517,3 +517,5 @@ $B = 16$ is again the sweet spot that gets most of the benefits without requirin
 For the other configurations, blocking is sometimes helpful and sometimes detrimental.
 In general, it's a pessimisation when the extent of the sparse vector is large but an improvement when it's short, and this difference is amplified by increasing $B$.
 This is consistent with whether the block of dense vectors can be held in cache for quick re-use with the next sparse vector.
+
+

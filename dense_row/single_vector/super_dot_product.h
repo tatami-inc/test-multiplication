@@ -4,6 +4,17 @@
 #include <cstddef>
 #include <numeric>
 
+// Force unrolling to avoid relying on optimizer decisions.
+// For example, older versions of GCC won't unroll at -O2, so we need to do it ourselves if we don't want a run-time nested loop.
+// Fortunately, compilers will stil auto-vectorize a manually-unrolled loop, so this won't be a pessimisation in the long term.
+template<std::size_t num_acc_, std::size_t counter_ = 0, class Iterator1_, class Iterator2_>
+void manual_dot_unroller(const std::size_t idx, Iterator1_ start1, Iterator2_ start2, std::array<FLOAT, num_acc_>& dots) {
+    dots[counter_] += *(start1 + idx + counter_) * *(start2 + idx + counter_);
+    if constexpr(counter_ + 1 < num_acc_) {
+        manual_dot_unroller<num_acc_, counter_ + 1>(idx, start1, start2, dots);
+    }
+}
+
 template<std::size_t num_acc_, class Iterator1_, class Iterator2_>
 FLOAT super_dot_product(const std::size_t len, Iterator1_ start1, Iterator2_ start2, FLOAT initial) {
     const std::size_t cycles = len / num_acc_;
@@ -22,10 +33,7 @@ FLOAT super_dot_product(const std::size_t len, Iterator1_ start1, Iterator2_ sta
     // I would guess that the time saved by skipping the addition is offset by the increased size of the program.
 
     for (std::size_t c = 0; c < cycles; ++c) {
-        for (std::size_t i = 0; i < num_acc_; ++i) {
-            const auto idx = c * num_acc_ + i;
-            dots[i] += *(start1 + idx) * *(start2 + idx);
-        }
+        manual_dot_unroller(c * num_acc_, start1, start2, dots);
     }
 
     for (std::size_t i = 0; i < remainder; ++i) {
