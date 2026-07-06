@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.14)
 project(
     scmv
     VERSION 1.0.0
-    DESCRIPTION "Sparse column matrix, multiple vectors"
+    DESCRIPTION "Sparse column-major LHS, multiple vectors RHS"
     LANGUAGES CXX
 )
 

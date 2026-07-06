@@ -44,7 +44,7 @@ void blocked_mult(
 }
 
 int main(int argc, char ** argv) {
-    CLI::App app{"Sparse column matrix x multiple vectors performance tests"};
+    CLI::App app{"Timings for sparse column-major LHS, multiple vectors RHS"};
     std::size_t NR;
     app.add_option("-r,--row", NR, "Number of matrix rows")->default_val(10000);
     std::size_t NC;
@@ -123,28 +123,28 @@ int main(int argc, char ** argv) {
 
     // Blocked.
     auto blocked_4 = preallocate_output();
-    names.emplace_back("blocked 4");
+    names.emplace_back("blocked (B = 4)");
     funs.emplace_back([&]() -> FLOAT {
         blocked_mult(NR, NC, mat_value, mat_index, NRHS, rhs, blocked_4, 4);
         return blocked_4.front().front() + blocked_4.front().back() + blocked_4.back().front() + blocked_4.back().back();
     });
 
     auto blocked_8 = preallocate_output();
-    names.emplace_back("blocked 8");
+    names.emplace_back("blocked (B = 8)");
     funs.emplace_back([&]() -> FLOAT {
         blocked_mult(NR, NC, mat_value, mat_index, NRHS, rhs, blocked_8, 8);
         return blocked_8.front().front() + blocked_8.front().back() + blocked_8.back().front() + blocked_8.back().back();
     });
 
     auto blocked_16 = preallocate_output();
-    names.emplace_back("blocked 16");
+    names.emplace_back("blocked (B = 16)");
     funs.emplace_back([&]() -> FLOAT {
         blocked_mult(NR, NC, mat_value, mat_index, NRHS, rhs, blocked_16, 16);
         return blocked_16.front().front() + blocked_16.front().back() + blocked_16.back().front() + blocked_16.back().back();
     });
 
     auto blocked_32 = preallocate_output();
-    names.emplace_back("blocked 32");
+    names.emplace_back("blocked (B = 32)");
     funs.emplace_back([&]() -> FLOAT {
         blocked_mult(NR, NC, mat_value, mat_index, NRHS, rhs, blocked_32, 32);
         return blocked_32.front().front() + blocked_32.front().back() + blocked_32.back().front() + blocked_32.back().back();

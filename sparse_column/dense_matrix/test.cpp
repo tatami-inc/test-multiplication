@@ -54,10 +54,17 @@ void blocked_mult_right_column_to_output_row(
     const std::size_t block_size 
 ) {
     const std::size_t line_size = 1024 / block_size;
+    std::vector<FLOAT> buffer(NRHS);
     for (std::size_t c = 0; c < NC; ++c) {
         const auto& mval = mat_value[c];
         const auto& midx = mat_index[c];
         const std::size_t mnnz = mval.size();
+        if (mnnz == 0) {
+            continue;
+        }
+        for (std::size_t h = 0; h < NRHS; ++h) {
+            buffer[h] = rhs[h][c];
+        }
         std::size_t x = 0;
         while (x < mnnz) {
             const std::size_t xend = x + std::min(mnnz - x, block_size);
@@ -68,7 +75,7 @@ void blocked_mult_right_column_to_output_row(
                     auto& out = product[midx[xcopy]];
                     const auto mult = mval[xcopy];
                     for (std::size_t hcopy = h; hcopy < hend; ++hcopy) {
-                        out[hcopy] += mult * rhs[hcopy][c];
+                        out[hcopy] += mult * buffer[hcopy];
                     }
                 }
                 h = hend;
@@ -144,7 +151,7 @@ void blocked_mult_right_row_to_output_row(
 }
 
 int main(int argc, char ** argv) {
-    CLI::App app{"Sparse column matrix x dense vector performance tests"};
+    CLI::App app{"Timings for sparse column-major LHS, dense matrix RHS"};
     std::size_t NR;
     app.add_option("-r,--row", NR, "Number of matrix rows")->default_val(10000);
     std::size_t NC;
@@ -263,15 +270,22 @@ int main(int argc, char ** argv) {
     auto naive_cr_ro = preallocate_row_output();
     names.emplace_back("naive, column-major RHS, row-major output");
     funs.emplace_back([&]() -> FLOAT {
+        std::vector<FLOAT> buffer(NRHS);
         for (std::size_t c = 0; c < NC; ++c) {
             const auto& mval = mat_value[c];
             const auto& midx = mat_index[c];
             const std::size_t mnnz = mval.size();
+            if (mnnz == 0) {
+                continue;
+            }
+            for (std::size_t h = 0; h < NRHS; ++h) {
+                buffer[h] = rhs_by_col[h][c];
+            }
             for (std::size_t x = 0; x < mnnz; ++x) {
                 const auto mult = mval[x];
                 auto& out = naive_cr_ro[midx[x]];
                 for (std::size_t h = 0; h < NRHS; ++h) {
-                    out[h] += mult * rhs_by_col[h][c];
+                    out[h] += mult * buffer[h];
                 }
             }
         }

@@ -34,18 +34,18 @@ We repeat this process for each $i$ until both matrices are fully traversed.
 
 We follow the framework described in the "Blocking along non-zeros" section in [`general/README.md`](../../general/README.md).
 Consider each LHS column and RHS row $i$. 
-We split the structural non-zeros in the LHS column into blocks of size $B$, while we split the structural non-zeros in the RHS row into blocks of size $C$. 
+We split the structural non-zeros in the LHS column into "primary" blocks of size $B$, while we split the structural non-zeros in the RHS row into "secondary" blocks of size $C$. 
 
-For row-major output, we iterate over the non-zero elements in each LHS block.
-For a non-zero at LHS row $j$ with value $x$, we perform a sparse vector multiply-add of the current block of the RHS non-zeros to the output row $j$.
-Once all non-zeros in the current LHS block are processed, we move onto the next block of $C$ RHS non-zeros.
-Once all non-zeros in the current RHS row are processed, we move onto the next block of LHS non-zeros, and so on until all LHS non-zeros are processed.
+For row-major output, we iterate over the non-zero elements in each primary LHS block.
+For a non-zero at LHS row $j$ with value $x$, we perform a sparse vector multiply-add of the secondary RHS block to the corresponding part of output row $j$.
+Once all non-zeros in the current primary block are processed, we move onto the next secondary block of $C$ RHS non-zeros.
+Once all non-zeros in the RHS row $i$ are processed, we move onto the next primary block in LHS column $i$, and so on until all LHS non-zeros are processed.
 We repeat this process for each $i$ until both matrices are fully traversed.
 
 For column-major output, we iterate over the non-zero elements in each RHS block.
-For a non-zero at RHS column $j$ with value $x$, we perform a sparse vector multiply-add of the current block of LHS non-zeros to the output column $j$.
-Once all non-zeros in the current RHS block are processed, we move onto the next block of $C$ LHS non-zeros.
-Once all non-zeros in the current LHS column are processed, we move onto the next block of RHS non-zeros, and so on until all RHS non-zeros are processed.
+For a non-zero at RHS column $j$ with value $x$, we perform a sparse vector multiply-add of the primary LHS block to output column $j$.
+Once all non-zeros in the current secondary block are processed, we move onto the next primary block of $C$ LHS non-zeros.
+Once all non-zeros in the LHS column $i$ are processed, we move onto the next secondary block in RHS row $i$, and so on until all RHS non-zeros are processed.
 We repeat this process for each $i$ until both matrices are fully traversed.
 
 ## Instructions
@@ -257,4 +257,4 @@ blocked (B = 16), row-major RHS, column-major output   : 0.029683 ± 0.00255992
 Blocking doesn't help all that much.
 I'd guess that the bottleneck is the random access to the dense output vectors.
 We don't have much opportunity to follow the advice in the "Blocking to cache the dense vector" section of [`general/README.md`](../../general/README.md).
-We can't easily re-use any of the dense output vectors across multiple $i$, given that different LHS columns/RHS rows will have their non-zeros in different positions.
+In particular, we can't easily re-use the dense output vectors across multiple $i$, given that different LHS columns/RHS rows will have their non-zeros in different positions.

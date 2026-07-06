@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.14)
 project(
     scdm 
     VERSION 1.0.0
-    DESCRIPTION "Sparse column matrix, dense matrix"
+    DESCRIPTION "Sparse column-major LHS, dense matrix RHS"
     LANGUAGES CXX
 )
 
