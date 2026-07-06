@@ -1,4 +1,4 @@
-# Sparse row-major product with a single vector
+# Sparse row-major LHS, single vector RHS
 
 ## Strategies
 

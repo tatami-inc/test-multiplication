@@ -55,7 +55,7 @@ void best_mult_with_right_column(
 }
 
 int main(int argc, char ** argv) {
-    CLI::App app{"Dense row matrix x sparse matrix performance tests"};
+    CLI::App app{"Timings for sparse row-major LHS, sparse matrix RHS"};
     std::size_t NR;
     app.add_option("-r,--row", NR, "Number of matrix rows")->default_val(10000);
     std::size_t NC;
@@ -167,6 +167,7 @@ int main(int argc, char ** argv) {
     auto naive_rr_co = preallocate_column_output();
     names.emplace_back("naive, row RHS, column output");
     funs.emplace_back([&]() -> FLOAT {
+        std::vector<FLOAT> buffer(NRHS);
         for (std::size_t r = 0; r < NR; ++r) {
             const auto& mval = mat_value[r];
             const auto& midx = mat_index[r];
@@ -178,8 +179,13 @@ int main(int argc, char ** argv) {
                 const auto mult = mval[x];
                 const std::size_t rnnz = rval.size();
                 for (std::size_t y = 0; y < rnnz; ++y) {
-                    naive_rr_co[ridx[y]][r] += mult * rval[y]; 
+                    buffer[ridx[y]] += mult * rval[y]; 
                 }
+            }
+            
+            for (std::size_t h = 0; h < NRHS; ++h) {
+                naive_rr_co[h][r] = buffer[h];
+                buffer[h] = 0;
             }
         }
         return naive_rr_co.front().front() + naive_rr_co.front().back() + naive_rr_co.back().front() + naive_rr_co.back().back();
@@ -187,14 +193,14 @@ int main(int argc, char ** argv) {
 
     // Best of column major.
     auto best_cr_co = preallocate_column_output();
-    names.emplace_back("naive, column RHS, column output");
+    names.emplace_back("best, column RHS, column output");
     funs.emplace_back([&]() -> FLOAT {
         best_mult_with_right_column<4, true>(NR, NC, mat_value, mat_index, NRHS, rhs_value_by_col, rhs_index_by_col, best_cr_co);
         return best_cr_co.front().front() + best_cr_co.front().back() + best_cr_co.back().front() + best_cr_co.back().back();
     });
 
     auto best_cr_ro = preallocate_row_output();
-    names.emplace_back("naive, column RHS, row output");
+    names.emplace_back("best, column RHS, row output");
     funs.emplace_back([&]() -> FLOAT {
         best_mult_with_right_column<4, false>(NR, NC, mat_value, mat_index, NRHS, rhs_value_by_col, rhs_index_by_col, best_cr_ro);
         return best_cr_ro.front().front() + best_cr_ro.front().back() + best_cr_ro.back().front() + best_cr_ro.back().back();

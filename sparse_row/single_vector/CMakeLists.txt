@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.14)
 project(
     srsv
     VERSION 1.0.0
-    DESCRIPTION "Sparse row matrix, single vector"
+    DESCRIPTION "Sparse row-major LHS, single vector RHS"
     LANGUAGES CXX
 )
 

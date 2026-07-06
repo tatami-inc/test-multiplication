@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.14)
 project(
     srsm
     VERSION 1.0.0
-    DESCRIPTION "Sparse row matrix, sparse matrix"
+    DESCRIPTION "Sparse row-major LHS, sparse matrix RHS"
     LANGUAGES CXX
 )
 

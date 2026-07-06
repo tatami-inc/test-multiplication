@@ -1,4 +1,4 @@
-# Sparse row-major product with sparse matrix
+# Sparse row-major LHS, sparse matrix RHS
 
 ## Strategies
 
@@ -14,17 +14,22 @@ So, if the LHS matrix is sparse, we just load it as a dense array and compute a 
 
 ### Naive row-major RHS
 
-The general idea is to accumulate the partial dot products by processing each RHS row.
-
 If the output is row-major: for each LHS row $i$, we iterate across its structural non-zeros.
 For a structural non-zero at column $j$, we perform a sparse vector multiply-add of the $j$-th RHS row to output row $i$,
 using the value at column $j$ from the $i$-th LHS row as the scaling factor.
 
-If the output is column-major, the process is much the same except that the output is done with conceptual output rows.
-The conceptual $i$-th output row consists of the $i$-th element from each output column.
+If the output is column-major, the process is much the same except that the output is stored in a temporary buffer.
+Once all non-zeros have been processed for an LHS row $i$, the buffer is transposed back into the $i$-th elements of each output column.
 
 There's not much opportunity for blocking as we already follow the advice described in "Blocking to cache the dense vector" in [`general/README.md`](../general/README.md).
-Specifically, we re-use the single dense $i$-th output row over multiple sparse RHS rows.
+Specifically, we already re-use the single dense $i$-th output row over multiple sparse RHS rows.
+We can't easily use the advice in the "Blocking to cache many dense vectors" section as using multiple output vectors would require considering multiple sparse LHS vectors,
+and there's no guarantee that different sparse vectors have non-zeros in the same positions (to use the same RHS rows).
+
+### Blocked row-major RHS
+
+We consider a block of $B$ LHS rows.
+
 
 ## Instructions
 
@@ -43,52 +48,52 @@ All timings below are obtained on an Intel i7-8850H.
 ```console
 $ ./build/test -r 1000 -c 1000 -H 1000
 Results for 1000 x 1000 x 1000
-naive, row RHS, row output                        : 0.00974691 ± 0.000546057
-naive, row RHS, column output                     : 0.0243895 ± 0.000262058
-naive, column RHS, column output                  : 0.0527461 ± 0.000703644
-naive, column RHS, row output                     : 0.0504591 ± 0.00046531
+naive, row RHS, row output                        : 0.0091949 ± 0.000320808
+naive, row RHS, column output                     : 0.0141732 ± 0.000177574
+best, column RHS, column output                   : 0.0518278 ± 0.000672238
+best, column RHS, row output                      : 0.0497647 ± 0.000708259
 
 $ ./build/test -r 1000 -c 10000 -H 100
 Results for 1000 x 10000 x 100
-naive, row RHS, row output                        : 0.0218466 ± 0.00023848
-naive, row RHS, column output                     : 0.0379368 ± 0.000744777
-naive, column RHS, column output                  : 0.0622704 ± 0.000652685
-naive, column RHS, row output                     : 0.0628882 ± 0.000503966
+naive, row RHS, row output                        : 0.0231038 ± 0.000779585
+naive, row RHS, column output                     : 0.0237298 ± 0.000738317
+best, column RHS, column output                   : 0.059413 ± 0.000593104
+best, column RHS, row output                      : 0.0589458 ± 0.000615948
 
 $ ./build/test -r 1000 -c 100 -H 10000
 Results for 1000 x 100 x 10000
-naive, row RHS, row output                        : 0.0245719 ± 0.00167466
-naive, row RHS, column output                     : 0.093078 ± 0.00137624
-naive, column RHS, column output                  : 0.155701 ± 0.000697547
-naive, column RHS, row output                     : 0.134717 ± 0.000559659
+naive, row RHS, row output                        : 0.0221899 ± 0.000570881
+naive, row RHS, column output                     : 0.105274 ± 0.000650406
+best, column RHS, column output                   : 0.148366 ± 0.00145275
+best, column RHS, row output                      : 0.130263 ± 0.000886095
 
 $ ./build/test -r 10000 -c 1000 -H 100
 Results for 10000 x 1000 x 100
-naive, row RHS, row output                        : 0.0189484 ± 0.000551797
-naive, row RHS, column output                     : 0.0341232 ± 0.000349086
-naive, column RHS, column output                  : 0.0508091 ± 0.00138805
-naive, column RHS, row output                     : 0.0518458 ± 0.00165641
+naive, row RHS, row output                        : 0.0185764 ± 0.000379937
+naive, row RHS, column output                     : 0.0209513 ± 0.000351586
+best, column RHS, column output                   : 0.045692 ± 0.00046442
+best, column RHS, row output                      : 0.043898 ± 0.000310554
 
 $ ./build/test -r 10000 -c 100 -H 1000
 Results for 10000 x 100 x 1000
-naive, row RHS, row output                        : 0.0185508 ± 0.00174834
-naive, row RHS, column output                     : 0.0461541 ± 0.00226978
-naive, column RHS, column output                  : 0.103137 ± 0.00107079
-naive, column RHS, row output                     : 0.0863968 ± 0.00123122
+naive, row RHS, row output                        : 0.0219146 ± 0.00101841
+naive, row RHS, column output                     : 0.0446172 ± 0.000726846
+best, column RHS, column output                   : 0.108007 ± 0.00114751
+best, column RHS, row output                      : 0.0872965 ± 0.00109877
 
 $ ./build/test -r 100 -c 10000 -H 1000
 Results for 100 x 10000 x 1000
-naive, row RHS, row output                        : 0.02784 ± 0.00195484
-naive, row RHS, column output                     : 0.0502914 ± 0.00130914
-naive, column RHS, column output                  : 0.1037 ± 0.00224712
-naive, column RHS, row output                     : 0.101403 ± 0.00176143
+naive, row RHS, row output                        : 0.027202 ± 0.00194448
+naive, row RHS, column output                     : 0.0309349 ± 0.0019711
+best, column RHS, column output                   : 0.106226 ± 0.00357625
+best, column RHS, row output                      : 0.106918 ± 0.00162478
 
-$ ./build/test -r 100 -c 1000 -H 1000
+$ ./build/test -r 100 -c 1000 -H 10000
 Results for 100 x 1000 x 10000
-naive, row RHS, row output                        : 0.0120568 ± 0.000798161
-naive, row RHS, column output                     : 0.061703 ± 0.00126865
-naive, column RHS, column output                  : 0.111474 ± 0.00108271
-naive, column RHS, row output                     : 0.104188 ± 0.000666023
+naive, row RHS, row output                        : 0.0176258 ± 0.00245426
+naive, row RHS, column output                     : 0.0266274 ± 0.00137205
+best, column RHS, column output                   : 0.108291 ± 0.00351356
+best, column RHS, row output                      : 0.097566 ± 0.00153462
 ```
 
 ## Single-precision results
@@ -98,57 +103,56 @@ Again, but with single-precision floats.
 ```console
 $ ./build/test_float -r 1000 -c 1000 -H 1000
 Results for 1000 x 1000 x 1000
-naive, row RHS, row output                        : 0.008098 ± 0.000266361
-naive, row RHS, column output                     : 0.0227222 ± 0.000498579
-naive, column RHS, column output                  : 0.0455685 ± 0.000578896
-naive, column RHS, row output                     : 0.0438019 ± 0.000275878
+naive, row RHS, row output                        : 0.00790758 ± 0.000166003
+naive, row RHS, column output                     : 0.0126563 ± 0.000126303
+best, column RHS, column output                   : 0.0435713 ± 0.00025489
+best, column RHS, row output                      : 0.0416087 ± 0.000106816
 
 $ ./build/test_float -r 1000 -c 10000 -H 100
 Results for 1000 x 10000 x 100
-naive, row RHS, row output                        : 0.0208201 ± 0.000252517
-naive, row RHS, column output                     : 0.0327509 ± 0.000223691
-naive, column RHS, column output                  : 0.0503243 ± 0.000609337
-naive, column RHS, row output                     : 0.0495242 ± 0.000233614
-
-$ ./build/test_float -r 10000 -c 1000 -H 100
-Results for 1000 x 100 x 10000
-naive, row RHS, row output                        : 0.0114681 ± 0.000641552
-naive, row RHS, column output                     : 0.0748511 ± 0.00195879
-naive, column RHS, column output                  : 0.144002 ± 0.00220149
-naive, column RHS, row output                     : 0.129835 ± 0.00100537
-
-$ ./build/test_float -r 10000 -c 100 -H 1000
-Results for 10000 x 1000 x 100
-naive, row RHS, row output                        : 0.0170281 ± 0.000258704
-naive, row RHS, column output                     : 0.0276715 ± 0.000250128
-naive, column RHS, column output                  : 0.041074 ± 0.000335663
-naive, column RHS, row output                     : 0.040046 ± 0.000285261
+naive, row RHS, row output                        : 0.0218208 ± 0.000374235
+naive, row RHS, column output                     : 0.022381 ± 0.000349104
+best, column RHS, column output                   : 0.0494421 ± 0.000197255
+best, column RHS, row output                      : 0.0500609 ± 0.000482941
 
 $ ./build/test_float -r 1000 -c 100 -H 10000
-Results for 10000 x 100 x 1000
-naive, row RHS, row output                        : 0.0106828 ± 0.000643659
-naive, row RHS, column output                     : 0.0406703 ± 0.000473592
-naive, column RHS, column output                  : 0.0956511 ± 0.00036083
-naive, column RHS, row output                     : 0.0810072 ± 0.000241104
+Results for 1000 x 100 x 10000
+naive, row RHS, row output                        : 0.0111717 ± 0.000521235
+naive, row RHS, column output                     : 0.0773264 ± 0.000891896
+best, column RHS, column output                   : 0.13357 ± 0.00165109
+best, column RHS, row output                      : 0.117397 ± 0.00118258
+
+$ ./build/test_float -r 10000 -c 1000 -H 100
+Results for 10000 x 1000 x 100
+naive, row RHS, row output                        : 0.0167115 ± 0.000136954
+naive, row RHS, column output                     : 0.0197596 ± 0.00015288
+best, column RHS, column output                   : 0.0388678 ± 0.000362312
+best, column RHS, row output                      : 0.0381919 ± 0.000256835
+
+$ ./build/test_float -r 10000 -c 100 -H 1000
+naive, row RHS, row output                        : 0.00994663 ± 0.000366776
+naive, row RHS, column output                     : 0.0422773 ± 0.000505419
+best, column RHS, column output                   : 0.0869793 ± 0.000614834
+best, column RHS, row output                      : 0.0744111 ± 0.000744273
 
 $ ./build/test_float -r 100 -c 1000 -H 10000
-Results for 100 x 10000 x 1000
-naive, row RHS, row output                        : 0.0224175 ± 0.00235243
-naive, row RHS, column output                     : 0.042039 ± 0.00129258
-naive, column RHS, column output                  : 0.0791434 ± 0.00122514
-naive, column RHS, row output                     : 0.0777247 ± 0.00162919
+Results for 100 x 1000 x 10000
+naive, row RHS, row output                        : 0.0109078 ± 0.00147093
+naive, row RHS, column output                     : 0.0192994 ± 0.000875545
+best, column RHS, column output                   : 0.08689 ± 0.00390084
+best, column RHS, row output                      : 0.0745847 ± 0.00299514
 
 $ ./build/test_float -r 100 -c 10000 -H 1000
-Results for 100 x 1000 x 10000
-naive, row RHS, row output                        : 0.00812157 ± 0.000684961
-naive, row RHS, column output                     : 0.0500534 ± 0.00211645
-naive, column RHS, column output                  : 0.0799424 ± 0.00403167
-naive, column RHS, row output                     : 0.0682742 ± 0.00340126
+Results for 100 x 10000 x 1000
+naive, row RHS, row output                        : 0.0208793 ± 0.00242385
+naive, row RHS, column output                     : 0.0229121 ± 0.00139054
+best, column RHS, column output                   : 0.0827183 ± 0.00320654
+best, column RHS, row output                      : 0.0830956 ± 0.00320684
 ```
 
 ## Conclusion
 
-Row-major RHS products are quite fast, even when the output is column-major and writes are not to near-contiguous memory.
+Row-major RHS products are quite fast, even when the output is column-major and transposition is required.
 
 Column-major RHS products are slightly slower than one might expect as we need to spend time expanding the sparse data into the dense array for the dot product.
 But it's not too bad.

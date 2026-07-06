@@ -1,4 +1,4 @@
-# Sparse row-major product with multiple vectors
+# Sparse row-major LHS, dense matrix RHS
 
 ## Strategies
 
@@ -13,12 +13,12 @@ We test both row- and column-major output though it shouldn't make much differen
 
 ### Naive row-major RHS
 
-For each LHS row $l$, we iterate over its structural non-zeros.
-For each column $k$ that contains a structural non-zero, we find the $k$-th RHS row and perform a vector multiply-add to the $l$-th output row,
-using the non-zero value at $k$ as the scaling factor.
+For each LHS row $i$, we iterate over its structural non-zeros.
+For each non-zero at column $j$ with value $x$, we perform a vector multiply-add of RHS row $j$ to the $i$-th output row using $x$ as the scaling factor.
 This is most obviously implemented when the output is row-major, in which case the $l$-th output row is trivially defined.
-If the output is column-major, the $l$-th output row consists of the $l$-th element of each output column, which is quite non-contiguous;
-this is largely unavoidable as the output doesn't align with any of the inputs.
+
+If the output is column-major, we use a temporary buffer to represent the $i$-th output row.
+Once we finish the iteration over the non-zeros of LHS row $i$, we transpose the temporary buffer to the $i$-th element of each of the output columns.
 
 ### Blocked row-major RHS
 
@@ -31,7 +31,8 @@ This is particularly relevant for column-major output where the cache will be po
 
 Other than the above strategy, there is no obvious blocking strategy here.
 We can't easily block on multiple LHS rows, for the reasons described in [`general/README.md`](../../general/README.md).
-The advice in the "Blocking to cache the dense vector" section isn't really applicable either, as our innermost loop consists of a dense vector multiply-add.
+The advice in the "Blocking to cache the dense vector" section isn't really applicable either,
+as our innermost loop consists of a dense vector multiply-add and we are already re-using the output vector for each LHS row.
 
 ## Instructions
 
@@ -50,94 +51,94 @@ All timings below are obtained on an Intel i7-8850H.
 ```console
 $ ./build/test -r 1000 -c 1000 -H 1000
 Results for 1000 x 1000 x 1000
-naive, row RHS, row output                        : 0.0580534 ± 0.000854938
-naive, row RHS, column output                     : 0.127761 ± 0.000916853
-blocked, column RHS, column output                : 0.0797759 ± 0.00101346
-blocked, column RHS, row output                   : 0.0767074 ± 0.00229993
-blocked 128, row RHS, row output                  : 0.0667878 ± 0.00136288
-blocked 256, row RHS, row output                  : 0.0666751 ± 0.00064996
-blocked 512, row RHS, row output                  : 0.0642879 ± 0.000362093
-blocked 128, row RHS, column output               : 0.104537 ± 0.000659076
-blocked 256, row RHS, column output               : 0.10154 ± 0.000841877
-blocked 512, row RHS, column output               : 0.126328 ± 0.00126055
+naive, row RHS, row output                        : 0.0460588 ± 0.00330281
+naive, row RHS, column output                     : 0.0540998 ± 0.00271173
+blocked, column RHS, column output                : 0.0630759 ± 0.00185478
+blocked, column RHS, row output                   : 0.064546 ± 0.00179411
+blocked (C = 128), row RHS, row output            : 0.0525098 ± 0.00263784
+blocked (C = 256), row RHS, row output            : 0.0521226 ± 0.00208019
+blocked (C = 512), row RHS, row output            : 0.0484932 ± 0.00191745
+blocked (C = 128), row RHS, column output         : 0.056303 ± 0.00160926
+blocked (C = 256), row RHS, column output         : 0.0543689 ± 0.00174219
+blocked (C = 512), row RHS, column output         : 0.0524003 ± 0.00201286
 
 $ ./build/test -r 1000 -c 10000 -H 100
 Results for 1000 x 10000 x 100
-naive, row RHS, row output                        : 0.0840911 ± 0.000102788
-naive, row RHS, column output                     : 0.126346 ± 0.00141991
-blocked, column RHS, column output                : 0.0916553 ± 0.000338912
-blocked, column RHS, row output                   : 0.0886739 ± 0.00211163
-blocked 128, row RHS, row output                  : 0.0895941 ± 0.000139302
-blocked 256, row RHS, row output                  : 0.0899717 ± 0.000289162
-blocked 512, row RHS, row output                  : 0.0901458 ± 0.000358412
-blocked 128, row RHS, column output               : 0.127407 ± 0.00042076
-blocked 256, row RHS, column output               : 0.126854 ± 0.00155358
-blocked 512, row RHS, column output               : 0.126947 ± 0.000411998
+naive, row RHS, row output                        : 0.0735664 ± 0.000313009
+naive, row RHS, column output                     : 0.0779421 ± 0.000550484
+blocked, column RHS, column output                : 0.0835776 ± 0.001549
+blocked, column RHS, row output                   : 0.0804031 ± 0.00107411
+blocked (C = 128), row RHS, row output            : 0.081701 ± 0.00204057
+blocked (C = 256), row RHS, row output            : 0.0799298 ± 0.00172603
+blocked (C = 512), row RHS, row output            : 0.0810431 ± 0.00179551
+blocked (C = 128), row RHS, column output         : 0.0775434 ± 0.00186665
+blocked (C = 256), row RHS, column output         : 0.0758692 ± 0.000289546
+blocked (C = 512), row RHS, column output         : 0.0772875 ± 0.00158213
 
 $ ./build/test -r 1000 -c 100 -H 10000
 Results for 1000 x 100 x 10000
-naive, row RHS, row output                        : 0.0693684 ± 0.00207116
-naive, row RHS, column output                     : 0.739155 ± 0.00642194
-blocked, column RHS, column output                : 0.11949 ± 0.00304828
-blocked, column RHS, row output                   : 0.112032 ± 0.00382869
-blocked 128, row RHS, row output                  : 0.0643858 ± 0.000462529
-blocked 256, row RHS, row output                  : 0.0702421 ± 0.00208502
-blocked 512, row RHS, row output                  : 0.0660661 ± 0.00134617
-blocked 128, row RHS, column output               : 0.181473 ± 0.00311114
-blocked 256, row RHS, column output               : 0.174896 ± 0.00306468
-blocked 512, row RHS, column output               : 0.191844 ± 0.00753395
+naive, row RHS, row output                        : 0.0552198 ± 0.00119858
+naive, row RHS, column output                     : 0.151166 ± 0.000879399
+blocked, column RHS, column output                : 0.106721 ± 0.000905374
+blocked, column RHS, row output                   : 0.0998967 ± 0.00109546
+blocked (C = 128), row RHS, row output            : 0.0518616 ± 0.000225112
+blocked (C = 256), row RHS, row output            : 0.0534019 ± 0.0010846
+blocked (C = 512), row RHS, row output            : 0.0538481 ± 0.000964849
+blocked (C = 128), row RHS, column output         : 0.14645 ± 0.000770905
+blocked (C = 256), row RHS, column output         : 0.150693 ± 0.000441325
+blocked (C = 512), row RHS, column output         : 0.148965 ± 0.000817317
 
 $ ./build/test -r 10000 -c 1000 -H 100
 Results for 10000 x 1000 x 100
-naive, row RHS, row output                        : 0.0396517 ± 0.000405834
-naive, row RHS, column output                     : 0.0859285 ± 0.000403978
-blocked, column RHS, column output                : 0.0479314 ± 0.000453107
-blocked, column RHS, row output                   : 0.0473317 ± 0.000552319
-blocked 128, row RHS, row output                  : 0.0423786 ± 0.000472069
-blocked 256, row RHS, row output                  : 0.0425152 ± 0.000530565
-blocked 512, row RHS, row output                  : 0.042891 ± 0.000421039
-blocked 128, row RHS, column output               : 0.0849356 ± 0.000497282
-blocked 256, row RHS, column output               : 0.0859169 ± 0.000403623
-blocked 512, row RHS, column output               : 0.0858828 ± 0.000324581
+naive, row RHS, row output                        : 0.0382865 ± 0.000131652
+naive, row RHS, column output                     : 0.0409861 ± 8.40963e-05
+blocked, column RHS, column output                : 0.0456873 ± 6.76628e-05
+blocked, column RHS, row output                   : 0.0454683 ± 0.000184191
+blocked (C = 128), row RHS, row output            : 0.0409425 ± 5.3359e-05
+blocked (C = 256), row RHS, row output            : 0.0408791 ± 9.59056e-05
+blocked (C = 512), row RHS, row output            : 0.0407881 ± 8.04983e-05
+blocked (C = 128), row RHS, column output         : 0.0427848 ± 0.000104469
+blocked (C = 256), row RHS, column output         : 0.0424956 ± 0.000107274
+blocked (C = 512), row RHS, column output         : 0.0425717 ± 0.000136229
 
 $ ./build/test -r 10000 -c 100 -H 1000
 Results for 10000 x 100 x 1000
-naive, row RHS, row output                        : 0.0387713 ± 0.00118478
-naive, row RHS, column output                     : 0.186487 ± 0.00329607
-blocked, column RHS, column output                : 0.0930907 ± 0.00205479
-blocked, column RHS, row output                   : 0.085156 ± 0.000761565
-blocked 128, row RHS, row output                  : 0.0394711 ± 0.000744241
-blocked 256, row RHS, row output                  : 0.0421912 ± 0.0012504
-blocked 512, row RHS, row output                  : 0.04179 ± 0.00157544
-blocked 128, row RHS, column output               : 0.104791 ± 0.00144385
-blocked 256, row RHS, column output               : 0.10701 ± 0.00381514
-blocked 512, row RHS, column output               : 0.12851 ± 0.00227159
+naive, row RHS, row output                        : 0.037236 ± 0.000441647
+naive, row RHS, column output                     : 0.0700007 ± 0.000314508
+blocked, column RHS, column output                : 0.0874915 ± 0.00017073
+blocked, column RHS, row output                   : 0.0842602 ± 0.000368006
+blocked (C = 128), row RHS, row output            : 0.03905 ± 0.000151329
+blocked (C = 256), row RHS, row output            : 0.041021 ± 0.000581308
+blocked (C = 512), row RHS, row output            : 0.0401235 ± 0.000481669
+blocked (C = 128), row RHS, column output         : 0.0696954 ± 0.000353812
+blocked (C = 256), row RHS, column output         : 0.0696242 ± 0.000140244
+blocked (C = 512), row RHS, column output         : 0.0678285 ± 0.000365976
 
 $ ./build/test -r 100 -c 10000 -H 1000
 Results for 100 x 10000 x 1000
-naive, row RHS, row output                        : 0.0833161 ± 0.00363464
-naive, row RHS, column output                     : 0.150734 ± 0.00490139
-blocked, column RHS, column output                : 0.108687 ± 0.0036227
-blocked, column RHS, row output                   : 0.10362 ± 0.0024361
-blocked 128, row RHS, row output                  : 0.0968997 ± 0.00250798
-blocked 256, row RHS, row output                  : 0.0964904 ± 0.00307168
-blocked 512, row RHS, row output                  : 0.0962094 ± 0.00401001
-blocked 128, row RHS, column output               : 0.146913 ± 0.00355968
-blocked 256, row RHS, column output               : 0.125998 ± 0.00301961
-blocked 512, row RHS, column output               : 0.149201 ± 0.00267329
+naive, row RHS, row output                        : 0.0763929 ± 0.00127659
+naive, row RHS, column output                     : 0.0861563 ± 0.00294199
+blocked, column RHS, column output                : 0.104407 ± 0.00143473
+blocked, column RHS, row output                   : 0.100668 ± 0.000941184
+blocked (C = 128), row RHS, row output            : 0.108184 ± 0.0137536
+blocked (C = 256), row RHS, row output            : 0.0910038 ± 0.00132061
+blocked (C = 512), row RHS, row output            : 0.0881999 ± 0.00184591
+blocked (C = 128), row RHS, column output         : 0.112797 ± 0.0157514
+blocked (C = 256), row RHS, column output         : 0.122903 ± 0.0280496
+blocked (C = 512), row RHS, column output         : 0.112684 ± 0.0222334
 
 $ ./build/test -r 100 -c 1000 -H 10000
 Results for 100 x 1000 x 10000
-naive, row RHS, row output                        : 0.0684087 ± 0.00303765
-naive, row RHS, column output                     : 0.44381 ± 0.00309237
-blocked, column RHS, column output                : 0.0917395 ± 0.00266562
-blocked, column RHS, row output                   : 0.0869302 ± 0.00333048
-blocked 128, row RHS, row output                  : 0.0777837 ± 0.00321725
-blocked 256, row RHS, row output                  : 0.0781021 ± 0.00476133
-blocked 512, row RHS, row output                  : 0.0792641 ± 0.00538608
-blocked 128, row RHS, column output               : 0.11353 ± 0.00377774
-blocked 256, row RHS, column output               : 0.110871 ± 0.00648472
-blocked 512, row RHS, column output               : 0.149648 ± 0.0041393
+naive, row RHS, row output                        : 0.068989 ± 0.000115923
+naive, row RHS, column output                     : 0.0782779 ± 0.00138271
+blocked, column RHS, column output                : 0.0928836 ± 0.000243174
+blocked, column RHS, row output                   : 0.0949537 ± 0.00276308
+blocked (C = 128), row RHS, row output            : 0.0821882 ± 0.000272044
+blocked (C = 256), row RHS, row output            : 0.0777324 ± 0.00136665
+blocked (C = 512), row RHS, row output            : 0.0750155 ± 0.000293431
+blocked (C = 128), row RHS, column output         : 0.0946204 ± 0.00320736
+blocked (C = 256), row RHS, column output         : 0.0859863 ± 0.00181124
+blocked (C = 512), row RHS, column output         : 0.0837395 ± 0.000549932
 ```
 
 ## Single-precision results
@@ -147,94 +148,94 @@ Again, but with single-precision floats.
 ```console
 $ ./build/test_float -r 1000 -c 1000 -H 1000
 Results for 1000 x 1000 x 1000
-naive, row RHS, row output                        : 0.0199549 ± 0.00118622
-naive, row RHS, column output                     : 0.109614 ± 0.00187057
-blocked, column RHS, column output                : 0.0488601 ± 0.000989886
-blocked, column RHS, row output                   : 0.0462167 ± 0.00161444
-blocked 128, row RHS, row output                  : 0.0314127 ± 0.00184375
-blocked 256, row RHS, row output                  : 0.023861 ± 0.00104315
-blocked 512, row RHS, row output                  : 0.0245345 ± 0.00143879
-blocked 128, row RHS, column output               : 0.0861077 ± 0.0036111
-blocked 256, row RHS, column output               : 0.0820253 ± 0.0033982
-blocked 512, row RHS, column output               : 0.110495 ± 0.00496927
+naive, row RHS, row output                        : 0.02195 ± 0.00105427
+naive, row RHS, column output                     : 0.0247275 ± 0.000944228
+blocked, column RHS, column output                : 0.0444091 ± 0.00071597
+blocked, column RHS, row output                   : 0.0431082 ± 0.000981927
+blocked (C = 128), row RHS, row output            : 0.0252006 ± 0.00118032
+blocked (C = 256), row RHS, row output            : 0.0232142 ± 0.000720437
+blocked (C = 512), row RHS, row output            : 0.0248254 ± 0.0010744
+blocked (C = 128), row RHS, column output         : 0.0433392 ± 0.000956829
+blocked (C = 256), row RHS, column output         : 0.0418413 ± 0.000620812
+blocked (C = 512), row RHS, column output         : 0.0322344 ± 0.000759028
 
 $ ./build/test_float -r 1000 -c 10000 -H 100
 Results for 1000 x 10000 x 100
-naive, row RHS, row output                        : 0.0345673 ± 0.00084894
-naive, row RHS, column output                     : 0.093332 ± 0.002001
-blocked, column RHS, column output                : 0.0576968 ± 0.0016289
-blocked, column RHS, row output                   : 0.0557325 ± 0.000279281
-blocked 128, row RHS, row output                  : 0.0401331 ± 0.000563717
-blocked 256, row RHS, row output                  : 0.0367982 ± 0.000407448
-blocked 512, row RHS, row output                  : 0.0377725 ± 0.00083929
-blocked 128, row RHS, column output               : 0.0932589 ± 0.000819586
-blocked 256, row RHS, column output               : 0.0915103 ± 0.000516813
-blocked 512, row RHS, column output               : 0.0943374 ± 0.00337136
+naive, row RHS, row output                        : 0.034289 ± 0.000542321
+naive, row RHS, column output                     : 0.034269 ± 0.000647106
+blocked, column RHS, column output                : 0.0573675 ± 0.00185613
+blocked, column RHS, row output                   : 0.0544813 ± 0.000664038
+blocked (C = 128), row RHS, row output            : 0.0360739 ± 0.000549512
+blocked (C = 256), row RHS, row output            : 0.0367187 ± 0.000409705
+blocked (C = 512), row RHS, row output            : 0.0367051 ± 0.000780183
+blocked (C = 128), row RHS, column output         : 0.0463962 ± 0.000935793
+blocked (C = 256), row RHS, column output         : 0.0464278 ± 0.00121811
+blocked (C = 512), row RHS, column output         : 0.0452083 ± 0.00237745
 
 $ ./build/test_float -r 1000 -c 100 -H 10000
 Results for 1000 x 100 x 10000
-naive, row RHS, row output                        : 0.0258554 ± 0.00158974
-naive, row RHS, column output                     : 0.631647 ± 0.00236086
-blocked, column RHS, column output                : 0.0828117 ± 0.00192209
-blocked, column RHS, row output                   : 0.0752683 ± 0.00148127
-blocked 128, row RHS, row output                  : 0.0224248 ± 0.0013015
-blocked 256, row RHS, row output                  : 0.0268823 ± 0.00163215
-blocked 512, row RHS, row output                  : 0.0251725 ± 0.000854037
-blocked 128, row RHS, column output               : 0.137031 ± 0.00175863
-blocked 256, row RHS, column output               : 0.139397 ± 0.00345552
-blocked 512, row RHS, column output               : 0.156128 ± 0.0014896
+naive, row RHS, row output                        : 0.0247778 ± 0.000998121
+naive, row RHS, column output                     : 0.0921905 ± 0.0012589
+blocked, column RHS, column output                : 0.0813766 ± 0.00105047
+blocked, column RHS, row output                   : 0.0731434 ± 0.000864366
+blocked (C = 128), row RHS, row output            : 0.0234632 ± 0.00117256
+blocked (C = 256), row RHS, row output            : 0.024544 ± 0.000936309
+blocked (C = 512), row RHS, row output            : 0.0258157 ± 0.00119773
+blocked (C = 128), row RHS, column output         : 0.10607 ± 0.00164087
+blocked (C = 256), row RHS, column output         : 0.106958 ± 0.000860245
+blocked (C = 512), row RHS, column output         : 0.0974364 ± 0.00107223
 
 $ ./build/test_float -r 10000 -c 1000 -H 100
 Results for 10000 x 1000 x 100
-naive, row RHS, row output                        : 0.0230611 ± 0.000318291
-naive, row RHS, column output                     : 0.0789659 ± 0.000369125
-blocked, column RHS, column output                : 0.0394367 ± 0.000372288
-blocked, column RHS, row output                   : 0.0380489 ± 0.000288291
-blocked 128, row RHS, row output                  : 0.0301117 ± 0.000280637
-blocked 256, row RHS, row output                  : 0.0246379 ± 0.000437824
-blocked 512, row RHS, row output                  : 0.0249032 ± 0.000439102
-blocked 128, row RHS, column output               : 0.0797317 ± 0.00038737
-blocked 256, row RHS, column output               : 0.0790595 ± 0.000491343
-blocked 512, row RHS, column output               : 0.0788373 ± 0.00034367
+naive, row RHS, row output                        : 0.0224964 ± 0.000204959
+naive, row RHS, column output                     : 0.024747 ± 0.000140967
+blocked, column RHS, column output                : 0.0379048 ± 0.000266363
+blocked, column RHS, row output                   : 0.0376875 ± 0.000290801
+blocked (C = 128), row RHS, row output            : 0.0239417 ± 0.000110955
+blocked (C = 256), row RHS, row output            : 0.0241115 ± 0.000258061
+blocked (C = 512), row RHS, row output            : 0.0240214 ± 0.000217932
+blocked (C = 128), row RHS, column output         : 0.0359655 ± 8.00151e-05
+blocked (C = 256), row RHS, column output         : 0.0360672 ± 0.000155637
+blocked (C = 512), row RHS, column output         : 0.0325091 ± 0.000123851
 
 $ ./build/test_float -r 10000 -c 100 -H 1000
 Results for 10000 x 100 x 1000
-naive, row RHS, row output                        : 0.0187499 ± 0.000411621
-naive, row RHS, column output                     : 0.238609 ± 0.00169203
-blocked, column RHS, column output                : 0.0731233 ± 0.000508713
-blocked, column RHS, row output                   : 0.0708886 ± 0.000494666
-blocked 128, row RHS, row output                  : 0.0208946 ± 0.00045291
-blocked 256, row RHS, row output                  : 0.0212928 ± 0.000656271
-blocked 512, row RHS, row output                  : 0.0208948 ± 0.00064648
-blocked 128, row RHS, column output               : 0.0964484 ± 0.00138662
-blocked 256, row RHS, column output               : 0.100247 ± 0.000921871
-blocked 512, row RHS, column output               : 0.132663 ± 0.000382331
+naive, row RHS, row output                        : 0.0189474 ± 0.000301625
+naive, row RHS, column output                     : 0.050856 ± 0.000284762
+blocked, column RHS, column output                : 0.0731365 ± 0.000504326
+blocked, column RHS, row output                   : 0.0697358 ± 0.000285929
+blocked (C = 128), row RHS, row output            : 0.0209172 ± 0.000517376
+blocked (C = 256), row RHS, row output            : 0.0211328 ± 0.00077664
+blocked (C = 512), row RHS, row output            : 0.0209946 ± 0.000490834
+blocked (C = 128), row RHS, column output         : 0.0681931 ± 0.000236411
+blocked (C = 256), row RHS, column output         : 0.0673098 ± 0.000418667
+blocked (C = 512), row RHS, column output         : 0.0562273 ± 0.000499628
 
 $ ./build/test_float -r 100 -c 10000 -H 1000
 Results for 100 x 10000 x 1000
-naive, row RHS, row output                        : 0.0451977 ± 0.00160425
-naive, row RHS, column output                     : 0.129111 ± 0.00108321
-blocked, column RHS, column output                : 0.067338 ± 0.000614795
-blocked, column RHS, row output                   : 0.0659567 ± 0.00117653
-blocked 128, row RHS, row output                  : 0.0537058 ± 0.000802451
-blocked 256, row RHS, row output                  : 0.052093 ± 0.00103617
-blocked 512, row RHS, row output                  : 0.0527055 ± 0.000493052
-blocked 128, row RHS, column output               : 0.115166 ± 0.0020727
-blocked 256, row RHS, column output               : 0.100671 ± 0.000636266
-blocked 512, row RHS, column output               : 0.122969 ± 0.00106657
+naive, row RHS, row output                        : 0.0492799 ± 0.00150064
+naive, row RHS, column output                     : 0.052661 ± 0.0021239
+blocked, column RHS, column output                : 0.0729214 ± 0.00161577
+blocked, column RHS, row output                   : 0.0721894 ± 0.00181488
+blocked (C = 128), row RHS, row output            : 0.0620729 ± 0.0025592
+blocked (C = 256), row RHS, row output            : 0.053281 ± 0.00141068
+blocked (C = 512), row RHS, row output            : 0.0569848 ± 0.00257189
+blocked (C = 128), row RHS, column output         : 0.0671772 ± 0.00182631
+blocked (C = 256), row RHS, column output         : 0.0672233 ± 0.00260849
+blocked (C = 512), row RHS, column output         : 0.0600476 ± 0.00186834
 
 $ ./build/test_float -r 100 -c 1000 -H 10000
 Results for 100 x 1000 x 10000
-naive, row RHS, row output                        : 0.0372867 ± 0.00054338
-naive, row RHS, column output                     : 0.245643 ± 0.00249169
-blocked, column RHS, column output                : 0.0611744 ± 0.000322518
-blocked, column RHS, row output                   : 0.0593245 ± 0.00112578
-blocked 128, row RHS, row output                  : 0.0542446 ± 0.000606041
-blocked 256, row RHS, row output                  : 0.0454118 ± 0.000392657
-blocked 512, row RHS, row output                  : 0.0431327 ± 0.00156864
-blocked 128, row RHS, column output               : 0.0981634 ± 0.00153266
-blocked 256, row RHS, column output               : 0.0905086 ± 0.000526096
-blocked 512, row RHS, column output               : 0.125176 ± 0.000540498
+naive, row RHS, row output                        : 0.0377793 ± 0.000434014
+naive, row RHS, column output                     : 0.0455398 ± 0.000180272
+blocked, column RHS, column output                : 0.0592305 ± 0.000280337
+blocked, column RHS, row output                   : 0.0579889 ± 0.000724933
+blocked (C = 128), row RHS, row output            : 0.0542895 ± 0.000607432
+blocked (C = 256), row RHS, row output            : 0.0457816 ± 0.0010903
+blocked (C = 512), row RHS, row output            : 0.0420522 ± 0.000224078
+blocked (C = 128), row RHS, column output         : 0.0714634 ± 0.00194997
+blocked (C = 256), row RHS, column output         : 0.0610694 ± 0.00158261
+blocked (C = 512), row RHS, column output         : 0.0531562 ± 0.000802023
 ```
 
 ## Conclusion
@@ -242,8 +243,4 @@ blocked 512, row RHS, column output               : 0.125176 ± 0.000540498
 Row-major RHS to row-major output is very efficient, even beating out the "obvious" product with a column-major RHS.
 This is probably to be expected given that the innermost loop involves contiguous memory and can be easily vectorization.
 
-Blocking in row-major RHS to row-major output does not help, probably because the loop restart overhead offsets any improvement in cache-friendliness.
-
-Blocking in row-major RHS to column-major output can be very helpful.
-Presumably this mitigates a lot of the cache evictions from scattered accesses to separate columns.
-However, it's still the worst-performing choice out of all the configurations.
+Blocking for row-major RHS does not help, probably because the loop restart overhead offsets any improvement in cache-friendliness.
