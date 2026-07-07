@@ -270,5 +270,6 @@ However, the improvement is much weaker and less consistent compared to the [sin
 This is a bit perplexing; perhaps memory access becomes a greater bottleneck when each RHS vector needs to be reloaded into cache.
 By comparison, much of the single RHS vector can be held in cache and re-used in the single vector case, which exposes the accumulation as the rate-limiting factor.
 
-Blocking is mostly unhelpful here. 
-Presumably the extra looping overhead outweighs any improvement in cache re-use.
+The truth of the matter is revealed when we combine multiple accumulators with blocking, which unlocks a major performance improvement.
+By keeping each dense vector in cache for longer, we mitigate the expensive random look-ups and allow the multiple accumulators to speed up the CPU-bound aspect of the summation.
+It seems that $B = 16$ is a good choice as it provides most of the benefit of blocking without consuming too much memory.
