@@ -94,33 +94,33 @@ though to be honest, I don't see a practical use for the faithful propagation of
 
 For the product of two dense matrices, we can use a blocking approach where we compute the product of two fixed-size submatrices.
 We use small submatrices so that they can be stored in L1 cache for fast re-use of rows/columns. 
-For example, when computing the product of a row-major RHS and column-major LHS, each RHS row is re-used to compute the dot product for each LHS column.
+For example, when computing the product of a row-major LHS and column-major RHS, each LHS row is re-used to compute the dot product for each RHS column.
 If the extent of the shared dimension is large enough to trigger cache evictions,
-each RHS row or LHS column (depending on the iteration pattern) would need to be reloaded from memory on every use.
-With blocking, we can reuse cached parts of multiple RHS rows with cached parts of multiple LHS columns to compute partial dot products;
-we repeat this across blocks and then aggregate the results to obtain the full matrix product.
+each LHS row or RHS column (depending on the iteration pattern) would need to be reloaded from memory on every use.
+With blocking, we can reuse cached parts of multiple LHS rows with cached parts of multiple RHS columns to compute partial dot products;
+we repeat this across all pairs of submatrices and then aggregate the results to obtain the full matrix product.
 
 The exact blocking strategy depends on the layout of the the RHS, LHS and output matrices,
 but we generally expect to operate on two $B$-by-$C$ (or $C$-by-$B$) matrices and one $B$-by-$B$ matrix:
 
-- $C$ is the extent of the fastest-changing dimension and should be the larger number to reduce the looping overhead.
-  The actual number of elements held in cache will usually be slightly larger than $C$ due to the cache lines exceeding the submatrix boundaries;
-  this is fine as the content in those lines will be used when processing the next block that contains the next $C$ elements of the fastest-changing dimension. 
 - $B$ determines the amount of cache re-use.
-  In our example of a product of a row-major RHS and column-major LHS, each (part of a) LHS row only needs to be reloaded into cache once every $B$ RHS columns,
+  In our example of a product of a row-major LHS and column-major RHS, each (part of a) LHS row only needs to be reloaded into cache once every $B$ RHS columns,
   compared to a naive approach where each LHS row may need to be reloaded into memory for each RHS column.
   Conversely, each (part of) an RHS column only needs to be loaded once every $B$ LHS rows.
   We could even split $B$ into $B_1$ for one submatrix and $B_2$ for the other, but let's keep things simple here.
+- $C$ is the extent of the fastest-changing dimension and should be the larger number to reduce the looping overhead.
+  The effective extent will usually be slightly larger than $C$ due to cache lines exceeding the submatrix boundaries.
+  This is fine as the rest of those cache lines will be used when processing the submatrix that contains the next $C$ elements of the fastest-changing dimension. 
 
 In this framework, $2BC + B^2$ is the number of elements to be held in cache at any given time, plus some extra space based on the granularity of the cache lines.
 For a given cache size, a larger $B$ will improve cache re-use but increase the overhead from loop restarts due to a lower $C$.
-A larger $B$ also increases memory usage as more dimension elements need to be realized by **tatami**;
+A larger $B$ also increases memory usage as more dimension elements need to be realized into main memory by **tatami**;
 and might put some more pressure on higher cache levels if the cache line sizes are different, 
 though x86 seems to use 64 bytes for [all levels of the cache hierarchy](https://stackoverflow.com/questions/23024574/how-much-data-is-loaded-in-to-the-l2-and-l3-caches).
 
 Some research suggests that we can expect to have at least 32 kb of L1 cache per core on modern Intel, AMD and Apple ARM processors.
 If we're working with double-precision types, requiring $BC = 1024$ and enforcing $B \leq C$ will use 16-24 kb, which should easily fit into L1.
-We could of course be more exact but it is better than $B$ and $C be multiples of 2,
+We could of course be more exact but it is better that $B$ and $C be multiples of 2,
 as this provides a chance to exploit existing data alignment and vectorization. 
 Indeed, blocking can be combined with multiple accumulators, in which case $C$ should be a multiple of the number of accumulators to avoid entry into the epilogue loop.
 
@@ -175,21 +175,22 @@ compared to the (much more expensive) random access to the accompanying dense ve
 We have observed that the most expensive part of sparse matrix multiplication is the random accesses of the accompanying dense vector.
 Each access might require a fetch from main memory if the position of the structural non-zero belongs in a new cache line.
 To avoid this, we aim to process a block of $B$ sparse vectors for each dense vector.
-For example, we might load a block of LHS sparse rows and compute the dot product for each sparse row with a single dense RHS column.
+For example, we might load a block of sparse LHS rows and compute the dot product for each sparse row with a single dense RHS column.
 
 Here, we assume that each sparse vector in the block contains structural non-zeros at positions that lie within a cache line of the previous sparse vectors.
 This means that we can re-use parts of the lone dense vector that have already been cached in operations with prior sparse vectors.
-We also assume that the cache hierarchy is large enough to hold the entire dense vector, or at least the parts corresponding to the sparse vector's structural non-zeros.
+We also assume that the cache hierarchy is large enough to hold the entire dense vector,
+or at least the parts corresponding to the structural non-zeros of all sparse vectors in the block.
 
-There are no cache considerations when choosing $B$, it is purely a trade-off between speed and memory usage.
-We can also be fairly confident that $B > 1$ is no worse than an unblocked algorithm that uses the same sparse vector with multiple dense vectors.
-Specifically, if the dense vector is so large doesn't fit into cache, then it would probably evict the earlier structural non-zeros of the sparse vector,
-so we would have to reload the sparse vector for the next dense vector anyway.
+The choice of $B$ is mainly a trade-off between speed and memory usage.
+A larger $B$ improves re-use of the dense vector with more sparse vectors but requires realization of the sparse vectors into main memory by **tatami**.
+Increasing $B$ also has an indirect effect on cache usage by forcing more of the dense vector to be loaded into cache, possibly causing the eviction of other values.
+However, this is hard to predict as it depends on the sparsity and how much (near-)overlap of positions are present between sparse vectors in the block.
 
 ### Blocking to cache many dense vectors
 
 Alternatively, if the dense vectors are small, we might consider loading a block of $B$ dense vectors into cache at once.
 For each sparse vector, we iterate over the dense vectors in this block, computing dot products or performing a sparse vector multiply-add.
 We then repeat this with a new sparse vector but re-using the same block of dense vectors.
-The idea is that the dense block is small enough that it can be completely cached for quick re-use.
+The idea is that the entire block is small enough to be completely held in the cache for fast re-use.
 Obviously, this has pretty limited applicability with regards to the matrix shape.
