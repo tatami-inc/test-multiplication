@@ -266,19 +266,13 @@ int main(int argc, char ** argv) {
     auto naive_cr_ro = preallocate_row_output();
     names.emplace_back("naive, column RHS, row output");
     funs.emplace_back([&]() -> FLOAT {
-        std::vector<FLOAT> buffer(NR);
-        for (std::size_t h = 0; h < NRHS; ++h) {
-            const auto& rightcol = rhs_by_col[h];
-            for (std::size_t c = 0; c < NC; ++c) {
-                const auto mult = rightcol[c];
-                const auto& matcol = matrix[c];
-                for (std::size_t r = 0; r < NR; ++r) { // ugh this is pretty ugly, but I don't think there's any other way.
-                    buffer[r] += mult * matcol[r];
+        for (std::size_t c = 0; c < NC; ++c) {
+            const auto& matcol = matrix[c];
+            for (std::size_t h = 0; h < NRHS; ++h) {
+                const auto mult = rhs_by_col[h][c];
+                for (std::size_t r = 0; r < NR; ++r) {
+                    naive_cr_ro[r][h] += mult * matcol[r]; // ugh this is pretty ugly, but I don't think there's any other way.
                 }
-            }
-            for (std::size_t r = 0; r < NR; ++r) {
-                naive_cr_ro[r][h] += buffer[r];
-                buffer[r] = 0;
             }
         }
         return naive_cr_ro.front().front() + naive_cr_ro.front().back() + naive_cr_ro.back().front() + naive_cr_ro.back().back();
