@@ -224,8 +224,12 @@ int main(int argc, char ** argv) {
                 const auto& indices = rhs_index_by_row[c];
                 const std::size_t nnz = values.size();
                 for (std::size_t x = 0; x < nnz; ++x) { // a bit of an ugly loop here.
-                    naive_rr_co[indices[x]][r] += values[x] * mult;
+                    buffer[indices[x]] += values[x] * mult;
                 }
+            }
+            for (std::size_t h = 0; h < NRHS; ++h) {
+                naive_rr_co[h][r] = buffer[h];
+                buffer[h] = 0;
             }
         }
         return naive_rr_co.front().front() + naive_rr_co.front().back() + naive_rr_co.back().front() + naive_rr_co.back().back();
