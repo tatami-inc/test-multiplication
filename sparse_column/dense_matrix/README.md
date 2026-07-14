@@ -355,5 +355,5 @@ Blocking is pretty helpful for row-major RHS with column-major output, similar t
 Seems like $B = 16$ is generally a good choice;
 it provides almost all of the benefit without double the memory usage of $B = 32$.
 
-For row-major RHS, blocking is less beneficial.
+For row-major output, blocking is less beneficial.
 Presumably the looping overhead offsets any gains in cache performance.
