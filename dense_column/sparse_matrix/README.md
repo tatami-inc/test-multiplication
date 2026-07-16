@@ -46,7 +46,7 @@ Otherwise, for LHS matrices with many rows, the start of the column would need t
 We follow the principles described in the "Blocking to cache the dense vector" section of [`general/README.md`](../../general.README.md).
 
 First, we load a block of $B$ LHS columns.
-This block is associated with a corresponding block of $B$ rows.
+This block is associated with a corresponding block of $B$ RHS rows.
 We iterate over the LHS rows where, for each LHS row $i$, we loop over the block of RHS rows.
 For each RHS row $j$, we perform a sparse matrix multiply-add of RHS row $j$ to output row $i$ using the LHS entry $(i, j)$ as the scaling factor..
 This is repeated with the next set of $B$ LHS columns until the entire LHS matrix is traversed.

@@ -192,5 +192,7 @@ However, this is hard to predict as it depends on the sparsity and how much (nea
 Alternatively, if the dense vectors are small, we might consider loading a block of $B$ dense vectors into cache at once.
 For each sparse vector, we iterate over the dense vectors in this block, computing dot products or performing a sparse vector multiply-add.
 We then repeat this with a new sparse vector but re-using the same block of dense vectors.
-The idea is that the entire block is small enough to be completely held in the cache for fast re-use.
-Obviously, this has pretty limited applicability with regards to the matrix shape.
+
+The assumption is that the entire dense block is small enough to be completely held in the cache for fast re-use across sparse vectors.
+The cache is also assumed to be large enough to store the sparse vector's contents for re-use across multiple dense vectors.
+By caching both the dense and sparse vectors, this strategy is more effective than just caching one dense vector, but only when the relevant dimension extent is small.

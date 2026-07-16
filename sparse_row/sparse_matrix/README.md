@@ -21,15 +21,15 @@ using the value at column $j$ from the $i$-th LHS row as the scaling factor.
 If the output is column-major, the process is much the same except that the output is stored in a temporary buffer.
 Once all non-zeros have been processed for an LHS row $i$, the buffer is transposed back into the $i$-th elements of each output column.
 
+### Comments on blocking, row-major RHS
+
 There's not much opportunity for blocking as we already follow the advice described in "Blocking to cache the dense vector" in [`general/README.md`](../general/README.md).
 Specifically, we already re-use the single dense $i$-th output row over multiple sparse RHS rows.
-We can't easily use the advice in the "Blocking to cache many dense vectors" section as using multiple output vectors would require considering multiple sparse LHS vectors,
-and there's no guarantee that different sparse vectors have non-zeros in the same positions (to use the same RHS rows).
 
-### Blocked row-major RHS
-
-We consider a block of $B$ LHS rows.
-
+We can't easily use the advice in the "Blocking to cache many dense vectors" section either.
+Ideally, we'd try to keep a block of multiple output rows in cache.
+However, this would involve considering multiple LHS rows, which may not have structural non-zeros in the same positions.
+This means that we aren't guaranteed to re-use the same RHS row for multiple LHS rows, which defeats the purpose of caching multiple dense vectors.
 
 ## Instructions
 
