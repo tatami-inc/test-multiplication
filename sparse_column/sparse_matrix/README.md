@@ -48,6 +48,12 @@ Once all non-zeros in the current secondary block are processed, we move onto th
 Once all non-zeros in the LHS column $i$ are processed, we move onto the next secondary block in RHS row $i$, and so on until all RHS non-zeros are processed.
 We repeat this process for each $i$ until both matrices are fully traversed.
 
+There's not much other opportunity for blocking here.
+For column-major output, we can't easily keep the same dense output columns in cache across multiple LHS columns,
+as there's no guarantee that the corresponding RHS rows will have structural non-zeros in the same positions.
+Similarly, for row-major output, we can't keep the same dense output rows in cache across multiple LHS columns,
+as each LHS column might not have structural non-zeros in the same positions.
+
 ## Instructions
 
 To build the test executable, use the usual CMake process:
