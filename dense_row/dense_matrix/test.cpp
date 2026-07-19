@@ -159,10 +159,10 @@ void blocked_mult_with_right_row_to_output_column(
             c = cend;
         }
 
-        // Perform a blocked transposition to the output columns.
+        // Perform a blocked transposition to the output columns. We use square blocks.
         std::size_t h = 0;
         while (h < NRHS) {
-            const std::size_t hend = h + std::min(line_size, NRHS - h);
+            const std::size_t hend = h + std::min(block_size, NRHS - h);
             for (auto rcopy = r; rcopy < rend; ++rcopy) {
                 auto& out = buffer[rcopy - r];
                 for (std::size_t hcopy = h; hcopy < hend; ++hcopy) {

@@ -196,3 +196,18 @@ We then repeat this with a new sparse vector but re-using the same block of dens
 The assumption is that the entire dense block is small enough to be completely held in the cache for fast re-use across sparse vectors.
 The cache is also assumed to be large enough to store the sparse vector's contents for re-use across multiple dense vectors.
 By caching both the dense and sparse vectors, this strategy is more effective than just caching one dense vector, but only when the relevant dimension extent is small.
+
+## Transposition
+
+Sometimes we need to perform transposition to transfer results from a temporary buffer to the output arrays.
+This is done in blocks to keep as much of the data in cache as possible.
+When choosing a block shape for transposition, we re-use the $B$ parameter mentioned above for convenience.
+However, we use square blocks even if the multiplication was performed using non-square blocks, i.e., $B \ne C$ in the dense case.
+
+The preference for square blocks is motivated by the extra usage from unused parts of cache lines.
+For example, if we pull in $E$ unused elements from cache lines for each contiguous segment,
+each $B$-by-$C$ block in our matrix multiplication would actually occupy $B(C + E)$ elements in cache.
+This is fine as $C$ is usually large compared to $B$ and $E$.
+If we used the same block shape during transposition, one of the blocks would use $C(B + E)$ as there would be more segments of memory and more cache lines.
+This will be much larger than the multiplication block's usage as $B$ is usually on the same scale as $E$.
+Thus, we use square blocks to ensure that the transposition remains cache-friendly.

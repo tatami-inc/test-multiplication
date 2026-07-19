@@ -90,9 +90,13 @@ void blocked_mult_with_right_row_to_output_column(
     while (r < NR) {
         const std::size_t rend = r + std::min(block_size, NR - r);
         for (std::size_t c = 0; c < NC; ++c) {
+            // Technically, we could do a blocked transposition across all columns, which would be more cache-friendly but require more memory.
+            // But that would probably be overkill given that we're not in the hot loop anyway.
+            // Also it makes it harder to skip columns where the corresponding RHS row is empty.
             for (std::size_t rcopy = r; rcopy < rend; ++rcopy) {
                 buffer[rcopy - r] = matrix[rcopy][c];
             }
+
             const auto& rval = rhs_value_by_row[c];
             const auto& ridx = rhs_index_by_row[c];
             const std::size_t nnz = rval.size();

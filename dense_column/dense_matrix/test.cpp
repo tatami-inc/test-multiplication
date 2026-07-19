@@ -78,7 +78,8 @@ void blocked_mult_with_right_column_to_output_row(
             const std::size_t hend = h + std::min(block_size, NRHS - h);
             std::size_t r = 0;
             while (r < NR) { // jump by block to go down the LHS columns as this is most contiguous.
-                const std::size_t rend = r + std::min(line_size, NR - r);
+                const std::size_t rnum = std::min(line_size, NR - r);
+                const std::size_t rend = r + rnum;
 
                 for (auto hcopy = h; hcopy < hend; ++hcopy) {
                     const auto& rightcol = rhs[hcopy];
@@ -92,13 +93,21 @@ void blocked_mult_with_right_column_to_output_row(
                     }
                 }
 
-                // Transposing to the output.
+                // Blocked transposition to the output. We use square blocks here,
+                // under the assumption that block_size < line_size.
+                std::size_t rt = 0;
+                while (rt < rnum) {
+                    std::size_t rtnum = std::min(rnum - rt, block_size);
+                    for (auto hcopy = h; hcopy < hend; ++hcopy) {
+                        auto& out = buffers[hcopy - h];
+                        for (std::size_t rtcounter = 0; rtcounter < rtnum; ++rtcounter) {
+                            product[r + rt + rtcounter][hcopy] += out[rt + rtcounter];
+                        }
+                    }
+                    rt += rtnum;
+                }
                 for (auto hcopy = h; hcopy < hend; ++hcopy) {
                     auto& out = buffers[hcopy - h];
-                    for (auto rcopy = r; rcopy < rend; ++rcopy) {
-                        auto& val = out[rcopy - r];
-                        product[rcopy][hcopy] += val;
-                    }
                     std::fill(out.begin(), out.end(), 0);
                 }
 
