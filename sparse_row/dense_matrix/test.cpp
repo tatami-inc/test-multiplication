@@ -86,27 +86,45 @@ void blocked_mult_right_row_to_output_column(
     std::vector<std::vector<FLOAT> >& product,
     const std::size_t block_size 
 ) {
-    std::vector<FLOAT> buffer(NRHS);
-    for (std::size_t r = 0; r < NR; ++r) {
-        const auto& mval = mat_value[r];
-        const auto& midx = mat_index[r];
-        const std::size_t nnz = mval.size();
-        std::size_t h = 0;
-        while (h < NRHS) {
-            const std::size_t hend = h + std::min(NRHS - h, block_size);
+    std::vector<std::vector<FLOAT> > buffers(block_size);
+    for (auto& bb : buffers){
+        bb.resize(NRHS);
+    }
+
+    std::size_t r = 0;
+    while (r < NR) {
+        const std::size_t rnum = std::min(NR - r, block_size);
+        for (std::size_t rcount = 0; rcount < rnum; ++rcount) {
+            auto& out = buffers[rcount];
+            const auto& mval = mat_value[rcount + r];
+            const auto& midx = mat_index[rcount + r];
+            const std::size_t nnz = mval.size();
             for (std::size_t x = 0; x < nnz; ++x) {
                 const auto mult = mval[x];
                 const auto& rightrow = rhs[midx[x]];
-                for (std::size_t hcopy = h; hcopy < hend; ++hcopy) {
-                    buffer[hcopy] += mult * rightrow[hcopy];
+                for (std::size_t h = 0; h < NRHS; ++h) {
+                    out[h] += mult * rightrow[h];
                 }
             }
-            h = hend; 
         }
-        for (std::size_t h = 0; h < NRHS; ++h) {
-            product[h][r] = buffer[h];
-            buffer[h] = 0;
+
+        // Blocked transposition, using square blocks.
+        std::size_t h = 0;
+        while (h < NRHS) {
+            const std::size_t hend = h + std::min(NRHS - h, block_size);
+            for (std::size_t rcount = 0; rcount < rnum; ++rcount) {
+                auto& out = buffers[rcount];
+                for (std::size_t hcopy = h; hcopy < hend; ++hcopy) {
+                    product[hcopy][rcount + r] = out[hcopy];
+                }
+            }
+            h = hend;
         }
+
+        for (auto& b : buffers) {
+            std::fill(b.begin(), b.end(), 0);
+        }
+        r += rnum;
     }
 }
 
@@ -225,8 +243,8 @@ int main(int argc, char ** argv) {
             }
             for (std::size_t h = 0; h < NRHS; ++h) {
                 naive_rr_co[h][r] = buffer[h];
-                buffer[h] = 0;
             }
+            std::fill(buffer.begin(), buffer.end(), 0);
         }
         return naive_rr_co.front().front() + naive_rr_co.front().back() + naive_rr_co.back().front() + naive_rr_co.back().back();
     });
@@ -268,25 +286,32 @@ int main(int argc, char ** argv) {
         return blocked_rr_ro_512.front().front() + blocked_rr_ro_512.front().back() + blocked_rr_ro_512.back().front() + blocked_rr_ro_512.back().back();
     });
 
-    auto blocked_rr_co_128 = preallocate_column_output();
-    names.emplace_back("blocked (C = 128), row RHS, column output");
+    auto blocked_rr_co_4 = preallocate_column_output();
+    names.emplace_back("blocked (B = 4), row RHS, column output");
     funs.emplace_back([&]() -> FLOAT {
-        blocked_mult_right_row_to_output_column(NR, NC, mat_value, mat_index, NRHS, rhs_by_row, blocked_rr_co_128, 128);
-        return blocked_rr_co_128.front().front() + blocked_rr_co_128.front().back() + blocked_rr_co_128.back().front() + blocked_rr_co_128.back().back();
+        blocked_mult_right_row_to_output_column(NR, NC, mat_value, mat_index, NRHS, rhs_by_row, blocked_rr_co_4, 4);
+        return blocked_rr_co_4.front().front() + blocked_rr_co_4.front().back() + blocked_rr_co_4.back().front() + blocked_rr_co_4.back().back();
     });
 
-    auto blocked_rr_co_256 = preallocate_column_output();
-    names.emplace_back("blocked (C = 256), row RHS, column output");
+    auto blocked_rr_co_8 = preallocate_column_output();
+    names.emplace_back("blocked (B = 8), row RHS, column output");
     funs.emplace_back([&]() -> FLOAT {
-        blocked_mult_right_row_to_output_column(NR, NC, mat_value, mat_index, NRHS, rhs_by_row, blocked_rr_co_256, 256);
-        return blocked_rr_co_256.front().front() + blocked_rr_co_256.front().back() + blocked_rr_co_256.back().front() + blocked_rr_co_256.back().back();
+        blocked_mult_right_row_to_output_column(NR, NC, mat_value, mat_index, NRHS, rhs_by_row, blocked_rr_co_8, 8);
+        return blocked_rr_co_8.front().front() + blocked_rr_co_8.front().back() + blocked_rr_co_8.back().front() + blocked_rr_co_8.back().back();
     });
 
-    auto blocked_rr_co_512 = preallocate_column_output();
-    names.emplace_back("blocked (C = 512), row RHS, column output");
+    auto blocked_rr_co_16 = preallocate_column_output();
+    names.emplace_back("blocked (B = 16), row RHS, column output");
     funs.emplace_back([&]() -> FLOAT {
-        blocked_mult_right_row_to_output_column(NR, NC, mat_value, mat_index, NRHS, rhs_by_row, blocked_rr_co_512, 512);
-        return blocked_rr_co_512.front().front() + blocked_rr_co_512.front().back() + blocked_rr_co_512.back().front() + blocked_rr_co_512.back().back();
+        blocked_mult_right_row_to_output_column(NR, NC, mat_value, mat_index, NRHS, rhs_by_row, blocked_rr_co_16, 16);
+        return blocked_rr_co_16.front().front() + blocked_rr_co_16.front().back() + blocked_rr_co_16.back().front() + blocked_rr_co_16.back().back();
+    });
+
+    auto blocked_rr_co_32 = preallocate_column_output();
+    names.emplace_back("blocked (B = 32), row RHS, column output");
+    funs.emplace_back([&]() -> FLOAT {
+        blocked_mult_right_row_to_output_column(NR, NC, mat_value, mat_index, NRHS, rhs_by_row, blocked_rr_co_32, 32);
+        return blocked_rr_co_32.front().front() + blocked_rr_co_32.front().back() + blocked_rr_co_32.back().front() + blocked_rr_co_32.back().back();
     });
 
     // Performing the iterations.
@@ -295,9 +320,6 @@ int main(int argc, char ** argv) {
     opt.setup = [&]() -> void {
         reset_output(naive_rr_ro);
         reset_output(naive_rr_co);
-        reset_output(blocked_rr_co_128);
-        reset_output(blocked_rr_co_256);
-        reset_output(blocked_rr_co_512);
         reset_output(blocked_rr_ro_128);
         reset_output(blocked_rr_ro_256);
         reset_output(blocked_rr_ro_512);
