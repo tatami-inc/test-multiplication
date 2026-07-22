@@ -1,9 +1,10 @@
+#ifndef IMPLEMENTATIONS_H
+#define IMPLEMENTATIONS_H
+
 #include <vector>
 #include <array>
 #include <cstddef>
 #include <numeric>
-
-// Putting implementations in a separate file to ensure that the compiler can't see them and do some wacky loop hoisting in the timing iterations loop.
 
 template<std::size_t counter_ = 0, class Iterator1_, class Iterator2_>
 void unrolled_dense_dot_product(const std::size_t idx, Iterator1_ start1, Iterator2_ start2, std::array<double, ACCUMULATORS>& dots) {
@@ -32,7 +33,7 @@ double recursive_sum(std::array<double, stride_>& dots) {
     }
 }
 
-double loop(const std::size_t len, const std::vector<double>& left, const std::vector<double>& right) {
+inline double loop(const std::size_t len, const double* left, const double* right) {
     const std::size_t cycles = len / ACCUMULATORS;
     const std::size_t remainder = len % ACCUMULATORS;
     std::array<double, ACCUMULATORS> dots{};
@@ -53,18 +54,13 @@ double loop(const std::size_t len, const std::vector<double>& left, const std::v
     return std::accumulate(dots.begin(), dots.end(), extra);
 }
 
-double manually_unrolled(const std::size_t len, const std::vector<double>& left, const std::vector<double>& right) {
+inline double manually_unrolled(const std::size_t len, const double* left, const double* right) {
     const std::size_t cycles = len / ACCUMULATORS;
     const std::size_t remainder = len % ACCUMULATORS;
     std::array<double, ACCUMULATORS> dots{};
 
     for (std::size_t c = 0; c < cycles; ++c) {
-        unrolled_dense_dot_product(
-            c * ACCUMULATORS,
-            left.data(),
-            right.data(),
-            dots
-        );
+        unrolled_dense_dot_product(c * ACCUMULATORS, left, right, dots);
     }
 
     double extra = 0;
@@ -76,7 +72,7 @@ double manually_unrolled(const std::size_t len, const std::vector<double>& left,
     return std::accumulate(dots.begin(), dots.end(), extra);
 }
 
-double peeled(const std::size_t len, const std::vector<double>& left, const std::vector<double>& right) {
+inline double peeled(const std::size_t len, const double* left, const double* right) {
     if (len <= ACCUMULATORS) {
         // We're already checking, so we might as well provide a fast path.
         double extra = 0;
@@ -110,7 +106,7 @@ double peeled(const std::size_t len, const std::vector<double>& left, const std:
     return std::accumulate(dots.begin(), dots.end(), extra);
 }
 
-double vectorized_epilogue(const std::size_t len, const std::vector<double>& left, const std::vector<double>& right) {
+inline double vectorized_epilogue(const std::size_t len, const double* left, const double* right) {
     const std::size_t cycles = len / ACCUMULATORS;
     const std::size_t remainder = len % ACCUMULATORS;
     std::array<double, ACCUMULATORS> dots{};
@@ -130,7 +126,7 @@ double vectorized_epilogue(const std::size_t len, const std::vector<double>& lef
     return std::accumulate(dots.begin(), dots.end(), 0.0);
 }
 
-double recursive_sum(const std::size_t len, const std::vector<double>& left, const std::vector<double>& right) {
+inline double recursive_sum(const std::size_t len, const double* left, const double* right) {
     const std::size_t cycles = len / ACCUMULATORS;
     const std::size_t remainder = len % ACCUMULATORS;
     std::array<double, ACCUMULATORS> dots{};
@@ -151,45 +147,4 @@ double recursive_sum(const std::size_t len, const std::vector<double>& left, con
     return extra + recursive_sum(dots);
 }
 
-double combined(const std::size_t len, const std::vector<double>& left, const std::vector<double>& right) {
-    if (len <= ACCUMULATORS) {
-        // We're already checking, so we might as well provide a fast path.
-        double extra = 0;
-        for (std::size_t i = 0; i < len; ++i) {
-            extra += left[i] * right[i];
-        }
-        return extra;
-    }
-
-    const std::size_t cycles = len / ACCUMULATORS;
-    const std::size_t remainder = len % ACCUMULATORS;
-
-    std::array<double, ACCUMULATORS> dots; // we'll be setting it, so no need to initialize.
-    for (std::size_t a = 0; a < ACCUMULATORS; ++a) {
-        dots[a] = left[a] * right[a];
-    }
-
-    for (std::size_t c = 1; c < cycles; ++c) {
-        for (std::size_t a = 0; a < ACCUMULATORS; ++a) {
-            const auto idx = c * ACCUMULATORS + a;
-            dots[a] += left[idx] * right[idx];
-        }
-    }
-
-    if constexpr(ACCUMULATORS == 16) {
-        for (std::size_t i = 0; i < remainder; ++i) {
-            const auto idx = cycles * ACCUMULATORS + i;
-            dots[i] += left[idx] * right[idx];
-        }
-        return recursive_sum(dots);
-    } else {
-        double extra = 0;
-        for (std::size_t i = 0; i < remainder; ++i) {
-            const auto idx = cycles * ACCUMULATORS + i;
-            extra += left[idx] * right[idx];
-        }
-        return extra + recursive_sum(dots);
-    }
-
-}
-
+#endif

@@ -7,11 +7,10 @@ Here we test various implementations for multiple accumulators.
 - `peeled`: peels off the first loop iteration to avoid an unnecessary addition to the all-zero `dots`. 
 - `vectorized epilogue`: add to the `dots` in the epilogue loop, which is most amenable to vectorization.
 - `recursive sum`: use a recursive algorithm to sum the accumulators.
-- `combined`: combines `peeled`, `recursive sum`, and (for 16+ accumulators) `vectorized epilogue`. 
 
 ## Instructions
 
-To build the test executable, use the usual CMake process:
+To build the test executables, use the usual CMake process:
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -20,148 +19,138 @@ cmake --build build
 
 This compiles with various choices for the number of accumulators (4, 8 and 16).
 
-## Vectorized epilogue
+## Single vector
 
-Sometimes it helps:
+We examine the effect on a dense row LHS with a single vector RHS and no blocking.
+We'll use a small number of LHS columns so that we can observe some differences between the implementations;
+otherwise, the runtime is dominated by the common main loop.
 
 ```console
-$ ./build/test16 -l 29
-Results for a vector of length 29
-loop                                              : 0.00250919 ± 1.25749e-05
-manually unrolled                                 : 0.00251855 ± 1.97719e-05
-peeled                                            : 0.00185423 ± 7.48596e-06
-vectorized epilogue                               : 0.00201737 ± 1.45924e-05
-recursive sum                                     : 0.00198312 ± 1.43347e-05
-combined                                          : 0.00148308 ± 5.75849e-06
+$ ./build/single4 -r 1000000 -c 50
+Results for 1000000 x 50
+loop                                    : 0.0291835 ± 0.000241569
+manually unrolled                       : 0.0291729 ± 7.39586e-05
+peeled                                  : 0.029454 ± 0.000125082
+vectorized epilogue                     : 0.0295726 ± 0.000104773
+recursive sum                           : 0.0290335 ± 9.75734e-05
+
+$ ./build/single4 -r 100000 -c 99
+Results for 100000 x 99
+loop                                    : 0.00539249 ± 2.94704e-05
+manually unrolled                       : 0.00542473 ± 7.87283e-05
+peeled                                  : 0.00534832 ± 2.57154e-05
+vectorized epilogue                     : 0.00542633 ± 2.72348e-05
+recursive sum                           : 0.00532815 ± 2.62941e-05
+
+$ ./build/single8 -r 1000000 -c 50
+Results for 1000000 x 50
+loop                                    : 0.0309609 ± 0.000710464
+manually unrolled                       : 0.0296608 ± 0.000135104
+peeled                                  : 0.030441 ± 0.000121915
+vectorized epilogue                     : 0.03031 ± 3.01516e-05
+recursive sum                           : 0.0292679 ± 8.22193e-05
+
+$ ./build/single8 -r 100000 -c 99
+Results for 100000 x 99
+loop                                    : 0.00549083 ± 0.000106359
+manually unrolled                       : 0.00543404 ± 3.98142e-05
+peeled                                  : 0.00544832 ± 3.60815e-05
+vectorized epilogue                     : 0.00553122 ± 3.35395e-05
+recursive sum                           : 0.00536924 ± 4.08273e-05
+
+$ ./build/single16 -r 1000000 -c 50
+Results for 1000000 x 50
+loop                                    : 0.0312693 ± 0.000104015
+manually unrolled                       : 0.0311502 ± 8.94648e-05
+peeled                                  : 0.0315175 ± 0.000141862
+vectorized epilogue                     : 0.0370732 ± 0.00023939
+recursive sum                           : 0.0300897 ± 6.07423e-05
+
+$ ./build/single16 -r 100000 -c 99
+Results for 100000 x 99
+loop                                    : 0.00552894 ± 2.4821e-05
+manually unrolled                       : 0.00554947 ± 3.29621e-05
+peeled                                  : 0.0057172 ± 7.61668e-05
+vectorized epilogue                     : 0.0059612 ± 1.66815e-05
+recursive sum                           : 0.00539817 ± 3.20029e-05
 ```
 
-and other times it doesn't:
+## Blocked 
+
+We examine the effect on a dense row LHS with a dense column RHS and blocking with 16-by-64 submatrices.
+Again, we'll use a small number of LHS columns so that we can observe some differences between the implementations.
 
 ```console
-$ ./build/test4 -l 9
-Results for a vector of length 9
-loop                                              : 0.000513285 ± 1.06217e-06
-manually unrolled                                 : 0.000529902 ± 8.3442e-06
-peeled                                            : 0.000479797 ± 2.09554e-06
-vectorized epilogue                               : 0.000618349 ± 3.05021e-05
-recursive sum                                     : 0.00042117 ± 7.3637e-06
-combined                                          : 0.000556544 ± 4.23583e-06
-```
+$ ./build/blocked4 -r 10000 -c 50 -H 1000
+Results for 10000 x 50 x 1000
+loop                                    : 0.125771 ± 0.000385737
+manually unrolled                       : 0.126086 ± 0.000397907
+peeled                                  : 0.131595 ± 0.00172411
+vectorized epilogue                     : 0.144718 ± 0.00207583
+recursive sum                           : 0.125943 ± 0.00112817
 
-The problem is that the epilogue is now dependent on `dots` so has to wait for the main loop to finish.
-This stalls the pipeline and counteracts any benefits from vector instructions.
-By comparison, a naive accumulation doesn't have to wait. 
+$ ./build/blocked4 -r 10000 -c 99 -H 1000
+Results for 10000 x 99 x 1000
+loop                                    : 0.22556 ± 0.00123396
+manually unrolled                       : 0.225075 ± 0.00097169
+peeled                                  : 0.237933 ± 0.000444414
+vectorized epilogue                     : 0.242627 ± 0.000613019
+recursive sum                           : 0.22381 ± 0.00105779
 
-## Peeling
+$ ./build/blocked8 -r 10000 -c 50 -H 1000
+Results for 10000 x 50 x 1000
+loop                                    : 0.13565 ± 0.000445148
+manually unrolled                       : 0.135042 ± 0.0003263
+peeled                                  : 0.14746 ± 0.000420035
+vectorized epilogue                     : 0.14798 ± 0.00102321
+recursive sum                           : 0.114978 ± 0.000221034
 
-Peeling does pretty well compared to `loop` in many situations, for example:
+$ ./build/blocked8 -r 10000 -c 99 -H 1000
+Results for 10000 x 99 x 1000
+loop                                    : 0.249081 ± 0.000596361
+manually unrolled                       : 0.249857 ± 0.00109592
+peeled                                  : 0.283001 ± 0.0012302
+vectorized epilogue                     : 0.269705 ± 0.000650635
+recursive sum                           : 0.213554 ± 0.000485496
 
-```console
-$ ./build/test4 -l 15
-Results for a vector of length 15
-loop                                              : 0.000679681 ± 9.34198e-06
-manually unrolled                                 : 0.000683238 ± 6.70825e-06
-peeled                                            : 0.000585089 ± 1.03187e-05
-vectorized epilogue                               : 0.000704479 ± 4.85825e-06
-recursive sum                                     : 0.000507646 ± 5.79391e-06
-combined                                          : 0.000603108 ± 1.86221e-06
-```
+$ ./build/blocked16 -r 10000 -c 50 -H 1000
+Results for 10000 x 50 x 1000
+loop                                    : 0.179841 ± 0.0021922
+manually unrolled                       : 0.180437 ± 0.0043776
+peeled                                  : 0.190283 ± 0.00387688
+vectorized epilogue                     : 0.273451 ± 0.00180517
+recursive sum                           : 0.117808 ± 0.00039584
 
-And it's a lot faster when the length is less than the number of accumulators, as we baked in a short-cut for that scenario:
-
-```console
-$ ./build/test16 -l 8
-Results for a vector of length 8
-loop                                              : 0.00181886 ± 3.61663e-06
-manually unrolled                                 : 0.00183083 ± 6.72697e-06
-peeled                                            : 0.000547975 ± 7.09111e-06
-vectorized epilogue                               : 0.00150043 ± 5.38343e-06
-recursive sum                                     : 0.00135885 ± 1.41946e-05
-combined                                          : 0.000584397 ± 7.70532e-06
-```
-
-However, sometimes it doesn't help:
-
-```console
-$ ./build/test8 -l 128
-Results for a vector of length 128
-loop                                              : 0.00260234 ± 1.57836e-05
-manually unrolled                                 : 0.00263361 ± 3.08048e-05
-peeled                                            : 0.00292591 ± 5.75354e-06
-vectorized epilogue                               : 0.00306841 ± 4.78548e-05
-recursive sum                                     : 0.0023583 ± 1.06776e-05
-combined                                          : 0.00283428 ± 3.89244e-05
-```
-
-This seems to be due to the extra conditional.
-In practice, if we're computing a dot product in a tight loop and the function can be inlined, a sufficiently smart compiler (e.g., GCC 16) can hoist the conditional out of the loop. 
-
-## Recursive sum
-
-Offers a speed-up over `loop` when there are many accumulators:
-
-```console
-$ ./build/test16 -l 30
-Results for a vector of length 30
-loop                                              : 0.00259188 ± 1.13688e-05
-manually unrolled                                 : 0.00255921 ± 5.77791e-06
-peeled                                            : 0.00191791 ± 4.62762e-06
-vectorized epilogue                               : 0.00201344 ± 5.60702e-06
-recursive sum                                     : 0.00198596 ± 1.62073e-06
-combined                                          : 0.000981628 ± 7.28822e-07
-```
-
-Even does well when there aren't that many accumulators:
-
-```console
-$ ./build/test4 -l 30
-Results for a vector of length 30
-loop                                              : 0.00093533 ± 1.1387e-05
-manually unrolled                                 : 0.000965973 ± 9.61781e-06
-peeled                                            : 0.000797491 ± 1.13914e-05
-vectorized epilogue                               : 0.000968414 ± 6.42487e-06
-recursive sum                                     : 0.000736849 ± 8.47261e-06
-combined                                          : 0.000854695 ± 1.22741e-05
-```
-
-## Manual unrolling
-
-This should be exactly the same as `loop`, as GCC will already unroll fixed-size loops at `-O3`.
-Manual unrolling is nicer for older compilers (e.g., GCC <12) that don't do this at `-O2`.
-That said, we would prefer to avoid manual unrolling as the compiler is usually in a better position to determine how much unrolling should be done,
-e.g., to avoid register spills and to keep the program size small.
-
-## Combined
-
-For large numbers of accumulators, all of the changes synergize appropriately:
-
-```console
-$ ./build/test16 -l 18
-Results for a vector of length 18
-loop                                              : 0.00186555 ± 2.06845e-05
-manually unrolled                                 : 0.00183516 ± 9.30086e-06
-peeled                                            : 0.00125216 ± 1.40248e-05
-vectorized epilogue                               : 0.00185857 ± 1.36576e-05
-recursive sum                                     : 0.00206842 ± 8.43279e-06
-combined                                          : 0.000735653 ± 9.24555e-06
-```
-
-For small numbers of accumulators, peeling and recursive summation don't synergize when they're combined:
-
-```console
-$ ./build/test4 -l 22
-Results for a vector of length 22
-loop                                              : 0.00082722 ± 4.16689e-05
-manually unrolled                                 : 0.000805229 ± 4.12291e-06
-peeled                                            : 0.000709305 ± 2.18848e-05
-vectorized epilogue                               : 0.000880836 ± 4.88305e-05
-recursive sum                                     : 0.000616033 ± 2.16033e-06
-combined                                          : 0.000719391 ± 7.6331e-06
+$ ./build/blocked16 -r 10000 -c 99 -H 1000
+Results for 10000 x 99 x 1000
+loop                                    : 0.339109 ± 0.000107241
+manually unrolled                       : 0.334759 ± 0.000397949
+peeled                                  : 0.368455 ± 0.000124964
+vectorized epilogue                     : 0.463111 ± 0.000280311
+recursive sum                           : 0.226652 ± 0.000179248
 ```
 
 ## Conclusions
 
-What a mess.
-Only the recursive sum consistently improves performance over the naive `loop`.
-Peeling is generally okay but fights with recursive sum so I'd prefer the latter if I have to choose between them.
-Perhaps it doesn't really matter: once we get to larger vectors, it's pretty much all the same as the main loop dominates the runtime.
+The recursive sum is the most consistent improvement.
+For lower number of accumulators, it is not worse than `loop`, while it is much better for higher numbers of accumulators.
+
+Manual unrolling very little no effect, probably because GCC unrolls the loop in `loop` at `-O3` anyway.
+Some inspection on Godbolt suggests that the unrolled loop does a few more (unnecessary) stores. 
+
+Peeling doesn't help much and is a pessimization with blocking, probably because of the extra conditional introducing a pipeline stall. 
+
+Vectorized epilogue is pretty bad.
+This is partially because the remainder is pretty small in all tested cases, but having a large remainder doesn't help either:
+
+```console
+$ ./build/blocked16 -r 10000 -c 95 -H 1000
+Results for 10000 x 95 x 1000
+loop                                    : 0.386967 ± 0.000174965
+manually unrolled                       : 0.3809 ± 0.000590987
+peeled                                  : 0.388781 ± 0.000879457
+vectorized epilogue                     : 0.46018 ± 0.000804861
+recursive sum                           : 0.26792 ± 0.000539519
+```
+I think the real reason is because the vectorized epilogue introduces a dependency on the accumulator array,
+such that it cannot be executed out of order with the end of the main loop.
